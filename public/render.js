@@ -3132,6 +3132,37 @@
                 ctx.stroke();
                 break;
             }
+            case "leaf": {
+                ctx.save();
+                ctx.rotate(0.3);
+                ctx.lineWidth = 0.23;
+                ctx.fillStyle = F(colors.leafGreen);
+                ctx.strokeStyle = FB(colors.leafGreen, "#000000", 0.15);
+                const path = new Path2D("M -0.4359 -0.413 c 0.6915 -0.3445 1.2585 -0.2428 1.446 -0.1385 c 0.5106 0.2839 -0.2383 0.5692 -0.2383 0.5692 c 0 0 0.4319 0.1106 0.3335 0.4908 c -0.0474 0.1832 -0.4829 0.3911 -1.2642 0.0193 c -0.2599 -0.1237 -1.039 0.2195 -1.039 0.2195 c 0.0003 -0.0009 0.2954 -0.9278 0.762 -1.1602 z");
+
+                ctx.beginPath();
+                ctx.fill(path);
+                ctx.stroke(path);
+
+                ctx.beginPath();
+                ctx.moveTo(-.04, 0);
+                ctx.lineTo(1.3, .01);
+                ctx.stroke();
+                ctx.restore();
+                break;
+            }
+            case "rock": {
+                ctx.lineWidth = 0.3;
+                ctx.fillStyle = F(colors.rockGray);
+                ctx.strokeStyle = FB(colors.rockGray, "#000000", 0.15);
+
+                ctx.beginPath();
+                polygonPath(ctx, 5, 1, 0, 1, 1);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
             case "rose": {
                 ctx.lineWidth = 0.3 * (4 / 3);
                 ctx.fillStyle = F(colors.rosePink);
