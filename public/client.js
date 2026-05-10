@@ -147,6 +147,24 @@ let craftNotice = "";
 let craftNoticeUntil = 0;
 let staticData = null;
 let petalTypes = {};
+let changelogText = "Loading changelog...";
+let changelogLoaded = false;
+
+function loadChangelog() {
+    fetch("/CHANGELOG.md")
+        .then(res => res.ok ? res.text() : Promise.reject(new Error("Missing CHANGELOG.md")))
+        .then(text => {
+            changelogText = text || "No changelog entries yet.";
+            changelogLoaded = true;
+        })
+        .catch(err => {
+            changelogText = "Could not load CHANGELOG.md.";
+            changelogLoaded = false;
+            console.warn("Failed to load changelog:", err);
+        });
+}
+
+loadChangelog();
 
 function loadStaticData() {
     fetch("/staticdata")
@@ -167,6 +185,7 @@ loadStaticData();
 const canvasUI = {
     inventoryOpen: false,
     settingsOpen: false,
+    changelogOpen: false,
 
     petalSlots: [],
     invSlots: [],
@@ -744,6 +763,11 @@ function drawSettingsMenu() {
             label: "Mouse Move",
             button: "SET_MOUSE_MOVE",
             active: mouseMovement
+        },
+        {
+            label: "Changelog",
+            button: "SET_CHANGELOG",
+            active: canvasUI.changelogOpen
         }
     ];
 
@@ -1282,6 +1306,120 @@ function drawCanvasBottomUI(me) {
     }
 }
 
+function drawChangelogOverlay() {
+    if (!canvasUI.changelogOpen) return;
+
+    const panelW = Math.min(620, canvas.width - 40);
+    const panelH = Math.min(520, canvas.height - 40);
+    const panelX = canvas.width / 2 - panelW / 2;
+    const panelY = canvas.height / 2 - panelH / 2;
+
+    ctx.save();
+
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "rgba(18,18,24,0.96)";
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, panelX, panelY, panelW, panelH, 18);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 28px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("Changelog", panelX + 24, panelY + 20);
+
+    const closeW = 86;
+    const closeH = 34;
+    const closeX = panelX + panelW - closeW - 18;
+    const closeY = panelY + 18;
+
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    roundRect(ctx, closeX, closeY, closeW, closeH, 10);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 14px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Close", closeX + closeW / 2, closeY + closeH / 2);
+
+    canvasUI.buttons.push({
+        label: "CHANGELOG_CLOSE",
+        x: closeX,
+        y: closeY,
+        w: closeW,
+        h: closeH
+    });
+
+    const textX = panelX + 24;
+    const textY = panelY + 74;
+    const textW = panelW - 48;
+    const lineH = 20;
+
+    ctx.font = "600 15px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+
+    const lines = markdownToPlainLines(changelogText);
+    let y = textY;
+
+    for (const line of lines) {
+        if (y > panelY + panelH - 30) break;
+
+        const wrapped = wrapCanvasText(line, textW);
+
+        for (const part of wrapped) {
+            if (y > panelY + panelH - 30) break;
+
+            ctx.fillStyle = line.startsWith("#")
+                ? "#ffffff"
+                : "rgba(255,255,255,0.84)";
+
+            ctx.fillText(part, textX, y);
+            y += line.startsWith("#") ? lineH + 6 : lineH;
+        }
+    }
+
+    ctx.restore();
+}
+
+function markdownToPlainLines(md) {
+    return String(md || "")
+        .replace(/\r/g, "")
+        .split("\n")
+        .map(line => {
+            return line
+                .replace(/^### /, "• ")
+                .replace(/^## /, "")
+                .replace(/^# /, "")
+                .replace(/\*\*/g, "")
+                .replace(/`/g, "");
+        });
+}
+
+function wrapCanvasText(text, maxW) {
+    const words = String(text || "").split(" ");
+    const lines = [];
+    let line = "";
+
+    for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+
+        if (ctx.measureText(test).width > maxW && line) {
+            lines.push(line);
+            line = word;
+        } else {
+            line = test;
+        }
+    }
+
+    lines.push(line);
+    return lines;
+}
+
 function drawCanvasInventory(me) {
     canvasUI.invSlots = [];
     rebuildInvStacks(me);
@@ -1697,6 +1835,16 @@ function handleCanvasUIMouseDown(mx, my, button, shiftCraft = false) {
                 return true;
             }
 
+            if (btn.label === "SET_CHANGELOG") {
+                canvasUI.changelogOpen = !canvasUI.changelogOpen;
+                return true;
+            }
+
+            if (btn.label === "CHANGELOG_CLOSE") {
+                canvasUI.changelogOpen = false;
+                return true;
+            }
+
             if (btn.label === "HB") showHitboxes = !showHitboxes;
             if (btn.label === "MOB") showMobUI = !showMobUI;
             if (btn.label === "INV") canvasUI.inventoryOpen = !canvasUI.inventoryOpen;
@@ -2087,6 +2235,7 @@ function render() {
         drawCanvasBottomUI(me);
         if (canvasUI.inventoryOpen) drawCanvasInventory(me);
         drawDraggedCanvasItem(me);
+        drawChangelogOverlay();
         drawCraftNotice();
     }
 
