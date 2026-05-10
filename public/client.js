@@ -36,6 +36,11 @@ canvas.addEventListener("wheel", (e) => {
 
 const statusEl = document.getElementById("status");
 const meEl = document.getElementById("me");
+const uiEl = document.getElementById("ui");
+
+if (uiEl) {
+    uiEl.style.display = "none";
+}
 
 function resize() {
     canvas.width = window.innerWidth;
@@ -47,9 +52,14 @@ resize();
 let leftDown = false;
 let rightDown = false;
 let spaceDown = false;
+
 let showHitboxes = false;
 let showMobUI = true;
+let mouseMovement = false;
 let godMode = false;
+
+let lastMouseWorldX = 0;
+let lastMouseWorldY = 0;
 
 const input = {
     up: false,
@@ -58,7 +68,11 @@ const input = {
     right: false,
     extend: false,
     retract: false,
-    deploy: false
+    deploy: false,
+
+    mouseMove: false,
+    mouseX: 0,
+    mouseY: 0
 };
 
 function recomputeExtend() {
@@ -152,6 +166,8 @@ loadStaticData();
 
 const canvasUI = {
     inventoryOpen: false,
+    settingsOpen: false,
+
     petalSlots: [],
     invSlots: [],
     buttons: [],
@@ -193,6 +209,31 @@ function indexById(list) {
 }
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function screenToWorld(sx, sy, me = null) {
+    const p = me || state.players.find(p => p.id === myId);
+
+    if (!p) {
+        return { x: sx, y: sy };
+    }
+
+    return {
+        x: p.x + (sx - canvas.width / 2) / zoom,
+        y: p.y + (sy - canvas.height / 2) / zoom
+    };
+}
+
+function updateMouseWorldTarget() {
+    const p = state.players.find(p => p.id === myId);
+    const w = screenToWorld(canvasUI.mouseX, canvasUI.mouseY, p);
+
+    lastMouseWorldX = w.x;
+    lastMouseWorldY = w.y;
+
+    input.mouseMove = mouseMovement;
+    input.mouseX = w.x;
+    input.mouseY = w.y;
+}
 
 function safeArray(value) {
     return Array.isArray(value) ? value : [];
@@ -384,6 +425,7 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
     canvasUI.mouseX = e.clientX;
     canvasUI.mouseY = e.clientY;
+    updateMouseWorldTarget();
 
     // Capture pointer so dragging keeps working even outside the canvas.
     try {
@@ -416,6 +458,8 @@ canvas.addEventListener("pointermove", (e) => {
     canvasUI.mouseX = e.clientX;
     canvasUI.mouseY = e.clientY;
 
+    updateMouseWorldTarget();
+
     if (canvasUI.dragging) {
         e.preventDefault();
     }
@@ -424,6 +468,7 @@ canvas.addEventListener("pointermove", (e) => {
 canvas.addEventListener("pointerup", (e) => {
     canvasUI.mouseX = e.clientX;
     canvasUI.mouseY = e.clientY;
+    updateMouseWorldTarget();
 
     if (canvasUI.dragging) {
         handleCanvasUIMouseUp(e.clientX, e.clientY);
@@ -463,7 +508,9 @@ canvas.addEventListener("pointercancel", (e) => {
 
 ws.addEventListener("open", () => {
     if (statusEl) statusEl.textContent = "Connected";
+
     setInterval(() => {
+        updateMouseWorldTarget();
         safeWsSend({ t: "input", ...input });
     }, 33);
 });
@@ -664,6 +711,86 @@ function drawCanvasButton(label, x, y, w, h, active) {
     ctx.fillText(label, x + w / 2, y + h / 2);
 
     canvasUI.buttons.push({ label, x, y, w, h });
+}
+
+function drawSettingsMenu() {
+    const x = 18;
+    const y = 18;
+    const buttonW = 54;
+    const buttonH = 44;
+
+    drawCanvasButton("⚙", x, y, buttonW, buttonH, canvasUI.settingsOpen);
+
+    if (!canvasUI.settingsOpen) return;
+
+    const panelX = x;
+    const panelY = y + buttonH + 10;
+    const panelW = 210;
+    const rowH = 38;
+    const pad = 10;
+
+    const settings = [
+        {
+            label: "Hitboxes",
+            button: "SET_HITBOXES",
+            active: showHitboxes
+        },
+        {
+            label: "Mob UI",
+            button: "SET_MOB_UI",
+            active: showMobUI
+        },
+        {
+            label: "Mouse Move",
+            button: "SET_MOUSE_MOVE",
+            active: mouseMovement
+        }
+    ];
+
+    const panelH = pad * 2 + settings.length * rowH + Math.max(0, settings.length - 1) * 8;
+
+    ctx.save();
+
+    ctx.fillStyle = "rgba(0,0,0,0.62)";
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 2;
+    roundRect(ctx, panelX, panelY, panelW, panelH, 14);
+
+    ctx.font = "800 14px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+
+    for (let i = 0; i < settings.length; i++) {
+        const s = settings[i];
+        const ry = panelY + pad + i * (rowH + 8);
+
+        ctx.fillStyle = s.active
+            ? "rgba(255,255,255,0.24)"
+            : "rgba(255,255,255,0.08)";
+        ctx.strokeStyle = s.active
+            ? "rgba(255,255,255,0.72)"
+            : "rgba(255,255,255,0.18)";
+        ctx.lineWidth = 1;
+
+        roundRect(ctx, panelX + pad, ry, panelW - pad * 2, rowH, 10);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(s.label, panelX + pad + 12, ry + rowH / 2);
+
+        ctx.textAlign = "right";
+        ctx.fillText(s.active ? "ON" : "OFF", panelX + panelW - pad - 12, ry + rowH / 2);
+        ctx.textAlign = "left";
+
+        canvasUI.buttons.push({
+            label: s.button,
+            x: panelX + pad,
+            y: ry,
+            w: panelW - pad * 2,
+            h: rowH
+        });
+    }
+
+    ctx.restore();
 }
 
 function drawRarityBadge(rarity, x, y) {
@@ -1076,6 +1203,8 @@ function drawCanvasBottomUI(me) {
     const invButtonY = canvas.height - buttonSize - 18;
     drawCanvasButton("INV", invButtonX, invButtonY, buttonSize, buttonSize, canvasUI.inventoryOpen);
 
+    drawSettingsMenu();
+
     // If there are no petals, do not do spooky invisible math
     if (count <= 0) return;
 
@@ -1086,9 +1215,9 @@ function drawCanvasBottomUI(me) {
     const barY = canvas.height - slotH * 2 - 18;
 
     // Debug buttons sit to the left of the petal bar
-    const debugX = Math.max(18, barX - buttonSize * 2 - buttonGap - 18);
-    drawCanvasButton("HB", debugX, barY + 20, buttonSize, buttonSize, showHitboxes);
-    drawCanvasButton("MOB", debugX + buttonSize + buttonGap, barY + 20, buttonSize, buttonSize, showMobUI);
+    //const debugX = Math.max(18, barX - buttonSize * 2 - buttonGap - 18);
+    //drawCanvasButton("HB", debugX, barY + 20, buttonSize, buttonSize, showHitboxes);
+    //drawCanvasButton("MOB", debugX + buttonSize + buttonGap, barY + 20, buttonSize, buttonSize, showMobUI);
 
     for (let i = 0; i < count; i++) {
         const pt = petals[i];
@@ -1547,6 +1676,27 @@ function handleCanvasUIMouseDown(mx, my, button, shiftCraft = false) {
 
     for (const btn of canvasUI.buttons) {
         if (pointInRect(mx, my, btn)) {
+            if (btn.label === "⚙") {
+                canvasUI.settingsOpen = !canvasUI.settingsOpen;
+                return true;
+            }
+
+            if (btn.label === "SET_HITBOXES") {
+                showHitboxes = !showHitboxes;
+                return true;
+            }
+
+            if (btn.label === "SET_MOB_UI") {
+                showMobUI = !showMobUI;
+                return true;
+            }
+
+            if (btn.label === "SET_MOUSE_MOVE") {
+                mouseMovement = !mouseMovement;
+                input.mouseMove = mouseMovement;
+                return true;
+            }
+
             if (btn.label === "HB") showHitboxes = !showHitboxes;
             if (btn.label === "MOB") showMobUI = !showMobUI;
             if (btn.label === "INV") canvasUI.inventoryOpen = !canvasUI.inventoryOpen;
