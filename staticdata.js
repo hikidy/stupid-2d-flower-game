@@ -27,7 +27,7 @@ const PETAL_RARITY_SCALE = [
 const PetalTypes = {
     basic: { id: "basic", label: "Basic", dmg: 10, maxHp: 10, reload: 2.0 },
     rose: { id: "rose", label: "Rose", dmg: 5, maxHp: 10, reload: 2.0, heal: 5, healCooldown: 0.5, radius: .75 },
-    leaf: { id: "leaf", label: "Leaf", dmg: 16, maxHp: 13, reload: 1.8, hps: 2 },
+    leaf: { id: "leaf", label: "Leaf", dmg: 16, maxHp: 13, reload: 1.8, hps: 2, radius: 1.15  },
     rock: { id: "rock", label: "Rock", dmg: 5, maxHp: 15, reload: 3.0, radius: 1.1 },
     rice: { id: "rice", label: "Rice", dmg: 5, maxHp: 1, reload: 0.000001, radius: .55, },
     stinger: { id: "stinger", label: "Stinger", dmg: 100, maxHp: 5, reload: 5, radius: .55, multi: [1, 1, 1, 1, 1, 3, 5, 5, 6], clumps: true, splitMultiDamage: true, },
