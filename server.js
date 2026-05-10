@@ -1052,6 +1052,19 @@ class Petal {
                 this.healLeft = this.healCooldown;
             }
         }
+
+        const type = PetalTypes[this.typeId];
+
+        if (type?.hps && anyAlive) {
+            const scale = petalStatScale(this.rarity);
+            const healPerSecond = type.hps * scale;
+
+            ownerPlayer.hp = clamp(
+                ownerPlayer.hp + healPerSecond * dt,
+                0,
+                ownerPlayer.maxHp
+            );
+        }
     }
 }
 
