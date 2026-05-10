@@ -1209,6 +1209,7 @@ class PlayerState {
     }
 
     _updatePetalSim(dt) {
+        const orbitData = getPetalOrbitLayout(this);
         for (let i = 0; i < PETAL.count; i++) {
             const petal = this.petals[i];
 
@@ -1235,7 +1236,7 @@ class PlayerState {
                 continue;
             }
 
-            const base = this.getPetalTargetWorldPos(i);
+            const base = this.getPetalTargetWorldPos(i, orbitData);
             const w = this.petalWobble[i];
 
             const wobX =
@@ -1262,8 +1263,8 @@ class PlayerState {
         }
     }
 
-    getPetalTargetWorldPos(i) {
-        const { layout, total } = getPetalOrbitLayout(this);
+    getPetalTargetWorldPos(i, orbitData = null) {
+        const { layout, total } = orbitData ?? getPetalOrbitLayout(this);
         const info = layout[i];
 
         const virtualIndex = info ? info.start : i;
