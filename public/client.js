@@ -732,86 +732,237 @@ function drawCanvasButton(label, x, y, w, h, active) {
     canvasUI.buttons.push({ label, x, y, w, h });
 }
 
-function drawSettingsMenu() {
-    const x = 18;
-    const y = 18;
-    const buttonW = 54;
-    const buttonH = 44;
-
-    drawCanvasButton("⚙", x, y, buttonW, buttonH, canvasUI.settingsOpen);
-
-    if (!canvasUI.settingsOpen) return;
-
-    const panelX = x;
-    const panelY = y + buttonH + 10;
-    const panelW = 210;
-    const rowH = 38;
-    const pad = 10;
-
-    const settings = [
+function getSettingsRows() {
+    return [
         {
+            kind: "checkbox",
             label: "Hitboxes",
-            button: "SET_HITBOXES",
-            active: showHitboxes
+            enabled: showHitboxes,
+            buttonLabel: "SET_HITBOXES"
         },
         {
+            kind: "checkbox",
             label: "Mob UI",
-            button: "SET_MOB_UI",
-            active: showMobUI
+            enabled: showMobUI,
+            buttonLabel: "SET_MOB_UI"
         },
         {
-            label: "Mouse Move",
-            button: "SET_MOUSE_MOVE",
-            active: mouseMovement
+            kind: "checkbox",
+            label: "Mouse Movement",
+            enabled: mouseMovement,
+            buttonLabel: "SET_MOUSE_MOVE"
         },
         {
-            label: "Changelog",
-            button: "SET_CHANGELOG",
-            active: canvasUI.changelogOpen
+            kind: "button",
+            label: "View Changelog",
+            buttonLabel: "SET_CHANGELOG"
         }
     ];
+}
 
-    const panelH = pad * 2 + settings.length * rowH + Math.max(0, settings.length - 1) * 8;
+function measureSettingsPanel(rows) {
+    const panelPadX = 12;
+    const panelPadY = 12;
+
+    const boxSize = 28;
+    const rowGap = 8;
+    const buttonH = 36;
+
+    const labelFont = "bold 22px Ubuntu, Arial, sans-serif";
+    const buttonFont = "bold 22px Ubuntu, Arial, sans-serif";
+
+    let maxW = 0;
+    let totalH = panelPadY * 2;
 
     ctx.save();
 
-    ctx.fillStyle = "rgba(0,0,0,0.62)";
-    ctx.strokeStyle = "rgba(255,255,255,0.22)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, panelX, panelY, panelW, panelH, 14);
+    for (const row of rows) {
+        if (row.kind === "checkbox") {
+            ctx.font = labelFont;
 
-    ctx.font = "800 14px system-ui, sans-serif";
+            const textW = ctx.measureText(row.label).width;
+            const rowW = panelPadX * 2 + boxSize + 10 + textW;
+
+            maxW = Math.max(maxW, rowW);
+            totalH += boxSize + rowGap;
+        }
+
+        if (row.kind === "button") {
+            ctx.font = buttonFont;
+
+            const textW = ctx.measureText(row.label).width;
+            const rowW = panelPadX * 2 + textW + 34;
+
+            maxW = Math.max(maxW, rowW);
+            totalH += buttonH + rowGap;
+        }
+    }
+
+    ctx.restore();
+
+    if (rows.length > 0) {
+        totalH -= rowGap;
+    }
+
+    const minPanelW = 230;
+    const maxPanelW = Math.max(180, canvas.width - 20);
+
+    const panelW = clamp(Math.ceil(maxW), minPanelW, maxPanelW);
+    const panelH = Math.ceil(totalH);
+
+    return {
+        panelW,
+        panelH,
+        panelPadX,
+        panelPadY,
+        boxSize,
+        rowGap,
+        buttonH
+    };
+}
+
+function drawSettingsCheckboxRow(x, y, rowW, label, enabled, buttonLabel) {
+    const boxSize = 28;
+
+    ctx.fillStyle = enabled ? "#d2d2d2" : "#2a2a2a";
+    ctx.strokeStyle = "#6e6e6e";
+    ctx.lineWidth = 3;
+    ctx.fillRect(x, y, boxSize, boxSize);
+    ctx.strokeRect(x, y, boxSize, boxSize);
+
+    if (enabled) {
+        ctx.strokeStyle = "#ababab";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + 15);
+        ctx.lineTo(x + 11, y + 22);
+        ctx.lineTo(x + 23, y + 7);
+        ctx.stroke();
+    }
+
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 22px Ubuntu, Arial, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
+    ctx.fillText(label, x + boxSize + 10, y + boxSize / 2);
 
-    for (let i = 0; i < settings.length; i++) {
-        const s = settings[i];
-        const ry = panelY + pad + i * (rowH + 8);
+    canvasUI.buttons.push({
+        label: buttonLabel,
+        x,
+        y,
+        w: rowW,
+        h: boxSize
+    });
+}
 
-        ctx.fillStyle = s.active
-            ? "rgba(255,255,255,0.24)"
-            : "rgba(255,255,255,0.08)";
-        ctx.strokeStyle = s.active
-            ? "rgba(255,255,255,0.72)"
-            : "rgba(255,255,255,0.18)";
-        ctx.lineWidth = 1;
+function drawSettingsFlatButton(x, y, w, h, label, buttonLabel) {
+    ctx.fillStyle = "#8d8d8d";
+    ctx.strokeStyle = "#2a2a2a";
+    ctx.lineWidth = 4;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
 
-        roundRect(ctx, panelX + pad, ry, panelW - pad * 2, rowH, 10);
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 22px Ubuntu, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x + w / 2, y + h / 2 + 1);
 
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(s.label, panelX + pad + 12, ry + rowH / 2);
+    canvasUI.buttons.push({
+        label: buttonLabel,
+        x,
+        y,
+        w,
+        h
+    });
+}
 
-        ctx.textAlign = "right";
-        ctx.fillText(s.active ? "ON" : "OFF", panelX + panelW - pad - 12, ry + rowH / 2);
-        ctx.textAlign = "left";
+function drawSettingsMenu() {
+    const gearX = 10;
+    const gearY = 10;
+    const gearSize = 68;
 
-        canvasUI.buttons.push({
-            label: s.button,
-            x: panelX + pad,
-            y: ry,
-            w: panelW - pad * 2,
-            h: rowH
-        });
+    ctx.save();
+
+    // Gear button
+    ctx.fillStyle = "#d9d9d9";
+    ctx.strokeStyle = "#8d8d8d";
+    ctx.lineWidth = 6;
+    ctx.fillRect(gearX, gearY, gearSize, gearSize);
+    ctx.strokeRect(gearX, gearY, gearSize, gearSize);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "48px Ubuntu, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("⚙", gearX + gearSize / 2, gearY + gearSize / 2 + 1);
+
+    canvasUI.buttons.push({
+        label: "SETTINGS_TOGGLE",
+        x: gearX,
+        y: gearY,
+        w: gearSize,
+        h: gearSize
+    });
+
+    if (!canvasUI.settingsOpen) {
+        ctx.restore();
+        return;
+    }
+
+    const rows = getSettingsRows();
+    const metrics = measureSettingsPanel(rows);
+
+    const panelX = 10;
+    const panelY = 95;
+    const panelW = metrics.panelW;
+    const panelH = metrics.panelH;
+
+    ctx.fillStyle = "#bfbfbf";
+    ctx.strokeStyle = "#8d8d8d";
+    ctx.lineWidth = 5;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    let y = panelY + metrics.panelPadY;
+
+    for (const row of rows) {
+        const rowX = panelX + metrics.panelPadX;
+        const rowW = panelW - metrics.panelPadX * 2;
+
+        if (row.kind === "checkbox") {
+            drawSettingsCheckboxRow(
+                rowX,
+                y,
+                rowW,
+                row.label,
+                row.enabled,
+                row.buttonLabel
+            );
+
+            y += metrics.boxSize + metrics.rowGap;
+        }
+
+        if (row.kind === "button") {
+            const buttonTextPad = 34;
+
+            ctx.font = "bold 22px Ubuntu, Arial, sans-serif";
+            const measuredW = Math.ceil(ctx.measureText(row.label).width + buttonTextPad);
+
+            const btnW = Math.min(rowW, measuredW);
+            const btnX = panelX + panelW / 2 - btnW / 2;
+
+            drawSettingsFlatButton(
+                btnX,
+                y,
+                btnW,
+                metrics.buttonH,
+                row.label,
+                row.buttonLabel
+            );
+
+            y += metrics.buttonH + metrics.rowGap;
+        }
     }
 
     ctx.restore();
@@ -830,7 +981,7 @@ function drawRarityBadge(rarity, x, y) {
     ctx.stroke();
 
     ctx.fillStyle = rarity === 1 || rarity === 7 ? "#000" : "#fff";
-    ctx.font = "800 10px system-ui, sans-serif";
+    ctx.font = "800 10px Ubuntu, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(String(rarity), x, y + 0.5);
@@ -1815,6 +1966,11 @@ function handleCanvasUIMouseDown(mx, my, button, shiftCraft = false) {
     for (const btn of canvasUI.buttons) {
         if (pointInRect(mx, my, btn)) {
             if (btn.label === "⚙") {
+                canvasUI.settingsOpen = !canvasUI.settingsOpen;
+                return true;
+            }
+
+            if (btn.label === "SETTINGS_TOGGLE") {
                 canvasUI.settingsOpen = !canvasUI.settingsOpen;
                 return true;
             }
