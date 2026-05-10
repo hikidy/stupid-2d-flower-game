@@ -1115,7 +1115,11 @@ class PlayerState {
             left: false,
             right: false,
             extend: false,
-            retract: false
+            retract: false,
+
+            mouseMove: false,
+            mouseX: 0,
+            mouseY: 0
         };
         this.godMode = false;
 
@@ -1153,15 +1157,35 @@ class PlayerState {
     }
 
     update(dt) {
-        const ix = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
-        const iy = (this.input.down ? 1 : 0) - (this.input.up ? 1 : 0);
+        let ix = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
+        let iy = (this.input.down ? 1 : 0) - (this.input.up ? 1 : 0);
+
+        const speed = this.godMode ? PLAYER.speed * 10 : PLAYER.speed;
+
+        // Mouse movement only takes over if no WASD key is being held.
+        // So WASD still works and can override mouse movement instantly.
+        if (ix === 0 && iy === 0 && this.input.mouseMove) {
+            const mx = Number(this.input.mouseX);
+            const my = Number(this.input.mouseY);
+
+            if (Number.isFinite(mx) && Number.isFinite(my)) {
+                const dx = mx - this.x;
+                const dy = my - this.y;
+                const d = Math.hypot(dx, dy);
+
+                // Deadzone prevents jitter when the mouse is basically on top of you.
+                if (d > 8) {
+                    ix = dx / d;
+                    iy = dy / d;
+                }
+            }
+        }
 
         if (ix === 0 && iy === 0) {
             this.vx = 0;
             this.vy = 0;
         } else {
             const invLen = 1 / (Math.hypot(ix, iy) || 1);
-            const speed = this.godMode ? PLAYER.speed * 10 : PLAYER.speed;
             this.vx = ix * invLen * speed;
             this.vy = iy * invLen * speed;
         }
@@ -4499,6 +4523,17 @@ wss.on("connection", (ws) => {
             p.input.right = !!msg.right;
             p.input.extend = !!msg.extend;
             p.input.retract = !!msg.retract;
+
+            p.input.mouseMove = !!msg.mouseMove;
+
+            const mx = Number(msg.mouseX);
+            const my = Number(msg.mouseY);
+
+            if (Number.isFinite(mx) && Number.isFinite(my)) {
+                p.input.mouseX = clamp(mx, 0, WORLD.w);
+                p.input.mouseY = clamp(my, 0, WORLD.h);
+            }
+
             return;
         }
 
