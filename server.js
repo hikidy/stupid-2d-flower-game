@@ -24,58 +24,6 @@ const PLAYER = {
     speed: 220
 };
 
-function getPetalOrbitSpan(player, slotIndex) {
-    const petal = player?.petals?.[slotIndex];
-    if (!petal) return 1;
-
-    const type = PetalTypes[petal.typeId];
-    if (!type) return 1;
-
-    const count = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
-
-    // Second-doc behavior:
-    // clumped multi = one orbit slot
-    // non-clumped multi = count orbit slots
-    if (count <= 1) return 1;
-    if (type.clumps) return 1;
-
-    return count;
-}
-
-function getPetalOrbitLayout(player) {
-    const layout = [];
-    let total = 0;
-
-    for (let i = 0; i < player.petals.length; i++) {
-        const span = getPetalOrbitSpan(player, i);
-
-        layout.push({
-            slotIndex: i,
-            start: total,
-            span
-        });
-
-        total += span;
-    }
-
-    return {
-        layout,
-        total: Math.max(1, total)
-    };
-}
-
-function getPetalVirtualOrbitPosition(player, virtualIndex, totalVirtual, time, slotIndex, subIndex, radius) {
-    const a = player.angleBase + (virtualIndex * Math.PI * 2) / totalVirtual;
-
-    const wobble = getMultiPetalWobble(slotIndex, subIndex, time, radius);
-
-    return {
-        x: player.x + Math.cos(a) * player.petalRadius + wobble.x,
-        y: player.y + Math.sin(a) * player.petalRadius + wobble.y,
-        angle: a
-    };
-}
-
 function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time = 0, ownerPlayer = null) {
     const amount = Math.max(1, resolvePetalMultiCount(type, rarity));
     const clumps = resolvePetalClumps(type, rarity);
@@ -325,10 +273,6 @@ function resolvePetalClumps(type, rarity) {
     return !!type?.clumps && count > 1;
 }
 
-function petalHasMulti(type, rarity) {
-    return resolvePetalMultiCount(type, rarity) > 1;
-}
-
 function getPetalMultiDamage(petal, type) {
     const count = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
 
@@ -391,22 +335,6 @@ function getVirtualPetalPos(player, virtualIndex, totalVirtual) {
         y: player.y + Math.sin(a) * player.petalRadius,
         angle: a
     };
-}
-
-function getAlivePetalTypeCount(player, typeId) {
-    if (!player || !Array.isArray(player.petals)) return 0;
-
-    let count = 0;
-
-    for (const petal of player.petals) {
-        if (!petal) continue;
-        if (petal.typeId !== typeId) continue;
-        if (!petal.isAlive()) continue;
-
-        count++;
-    }
-
-    return count;
 }
 
 function getPetalTypeCount(player, typeId) {
@@ -480,12 +408,7 @@ function getPetalRadius(type, rarity) {
 }
 
 function getMultiPetalRadius(type, rarity) {
-    const count = resolvePetalMultiCount(type, rarity);
-    const baseRadius = getPetalRadius(type, rarity);
-
-    if (count <= 1) return baseRadius;
-
-    return baseRadius;
+    return getPetalRadius(type, rarity);
 }
 
 function syncPetalMultiState(petal) {
@@ -526,8 +449,6 @@ function petalMultiAliveCount(petal) {
 
     return alive;
 }
-
-const PetalTypeList = Object.values(PetalTypes);
 
 // -------------------- Mob Types --------------------
 const MobTypeList = Object.values(MobTypes);
@@ -972,21 +893,6 @@ function dist2(ax, ay, bx, by) {
 }
 function pick(arr) {
     return arr[randi(0, arr.length - 1)];
-}
-
-function pickWeighted(arr, weightKey) {
-    if (arr.length === 0) return null;
-    if (arr.length === 1) return arr[0];
-
-    const totalWeight = arr.reduce((sum, item) => sum + (item[weightKey] || 1), 0);
-    if (totalWeight <= 0) return arr[0];
-
-    let random = Math.random() * totalWeight;
-    for (const item of arr) {
-        random -= (item[weightKey] || 1);
-        if (random <= 0) return item;
-    }
-    return arr[arr.length - 1];
 }
 
 let nextPlayerId = 1;
@@ -1713,8 +1619,6 @@ function resolveCircleOverlap(a, b, ra, rb) {
     // both blocked: do nothing (better than phasing into walls)
     return false;
 }
-
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
 function wrapAngle(a) {
     a = (a + Math.PI) % (Math.PI * 2);
@@ -2938,37 +2842,6 @@ function moveWithWalls(ent, dx, dy, r) {
     // try Y
     let ny = clamp(ent.y + dy, r, WORLD.h - r);
     if (!isWallAt(ent.x, ny)) ent.y = ny;
-}
-
-function pushMobOutOfPetal(mob, petalPos, petalRadius, mobRadius) {
-    let dx = mob.x - petalPos.x;
-    let dy = mob.y - petalPos.y;
-
-    let d = Math.hypot(dx, dy);
-
-    // If exactly stacked, pick a direction instead of exploding into NaN-land.
-    if (d < 0.0001) {
-        dx = Math.cos(mob.angle || 0);
-        dy = Math.sin(mob.angle || 0);
-        d = 1;
-    }
-
-    const hitDist = petalRadius + mobRadius;
-    const overlap = hitDist - d;
-    if (overlap <= 0) return;
-
-    const nx = dx / d;
-    const ny = dy / d;
-
-    const mass = mob.mass ?? 1;
-    const pushScale = (1 / Math.max(0.25, mass)) * 0.5;
-
-    moveWithWalls(
-        mob,
-        nx * overlap * pushScale,
-        ny * overlap * pushScale,
-        mobRadius
-    );
 }
 
 function isPointInZone(x, y, zone) {
