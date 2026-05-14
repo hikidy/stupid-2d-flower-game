@@ -21,28 +21,132 @@ const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(TICK_RATE / SNAPSHOT_RATE));
 const PLAYER = {
     radius: 15,
     maxHp: 250,
-    speed: 220
+    speed: 220,
+    bodyDmg: 20
 };
 
+const LEVELING = {
+    maxLevel: 200,
+
+    startSlots: 5,
+    maxSlots: 10,
+    levelsPerSlot: 15,
+
+    maxHpBase: 250,
+    maxHpGrowth: 1.02,
+
+    bodyDmgBase: 20,
+    bodyDmgGrowth: 1.02,
+
+    expRequirementBase: 50,
+    expRequirementPower: 1.2,
+
+    mobKillExpBase: 10,
+    mobKillExpRarityGrowth: 1.65,
+
+    craftSuccessExpBase: 20,
+    craftSuccessExpRarityGrowth: 2.0
+};
+
+function getExpRequiredForLevel(level) {
+    // Player starts at level 0, so level 1 costs:
+    // 50 * 1^1.2 = 50 exp.
+    level = Math.max(1, Math.floor(Number(level) || 1));
+    return Math.ceil(
+        LEVELING.expRequirementBase *
+        Math.pow(level, LEVELING.expRequirementPower)
+    );
+}
+
+function getExpRequiredForNextLevel(currentLevel) {
+    currentLevel = Math.max(0, Math.floor(Number(currentLevel) || 0));
+    return getExpRequiredForLevel(currentLevel + 1);
+}
+
+function getMobKillExp(mob) {
+    if (!mob) return 0;
+
+    const rarity = clamp(
+        Math.floor(Number(mob.rarity) || 0),
+        0,
+        sizeScaling.length - 1
+    );
+
+    const type = MobTypes[mob.type];
+    const typeMult = Number.isFinite(type?.expMult) ? type.expMult : 1;
+
+    return Math.max(
+        1,
+        Math.round(
+            LEVELING.mobKillExpBase *
+            Math.pow(LEVELING.mobKillExpRarityGrowth, rarity) *
+            typeMult
+        )
+    );
+}
+
+function getCraftSuccessExp(targetRarity) {
+    const rarity = clampPetalRarity(targetRarity);
+
+    return Math.max(
+        1,
+        Math.round(
+            LEVELING.craftSuccessExpBase *
+            Math.pow(LEVELING.craftSuccessExpRarityGrowth, rarity)
+        )
+    );
+}
+
+function getPlayerSlotCountForLevel(level) {
+    level = Math.max(0, Math.floor(Number(level) || 0));
+
+    return clamp(
+        LEVELING.startSlots + Math.floor(level / LEVELING.levelsPerSlot),
+        LEVELING.startSlots,
+        LEVELING.maxSlots
+    );
+}
+
+function getPlayerBaseMaxHpForLevel(level) {
+    level = Math.max(0, Math.floor(Number(level) || 0));
+    return LEVELING.maxHpBase * Math.pow(LEVELING.maxHpGrowth, level);
+}
+
+function getPlayerBodyDmgForLevel(level) {
+    level = Math.max(0, Math.floor(Number(level) || 0));
+    return LEVELING.bodyDmgBase * Math.pow(LEVELING.bodyDmgGrowth, level);
+}
+
 function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time = 0, ownerPlayer = null) {
-    const amount = Math.max(1, resolvePetalMultiCount(type, rarity));
+    const amount = resolvePetalMultiCount(type, rarity);
     const clumps = resolvePetalClumps(type, rarity);
 
-    if (amount <= 1) {
-        return [{ x: cx, y: cy, index: 0, angle }];
+    // Default petal: still a multi petal, just one body.
+    if (amount === 1) {
+        return [{
+            x: cx,
+            y: cy,
+            index: 0,
+            angle
+        }];
     }
 
     const out = [];
-    const r = getMultiPetalRadius(type, rarity);
+    const r = getPetalRadius(type, rarity);
 
-    // Non-clumped multi:
-    // each child petal is a full orbit petal, not a mini decoration.
+    // Spread multi, like light:
+    // each subpetal gets its own virtual orbit slot.
     if (!clumps && ownerPlayer) {
         const { layout, total } = getPetalOrbitLayout(ownerPlayer);
         const info = layout[slotIndex];
 
         if (!info) {
-            return [{ x: cx, y: cy, index: 0, angle }];
+            return [{
+                x: cx,
+                y: cy,
+                index: 0,
+                angle
+            }];
         }
 
         for (let i = 0; i < amount; i++) {
@@ -62,7 +166,7 @@ function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time
     }
 
     // Clumped multi:
-    // all petals go in a ring, none in the center.
+    // all subpetals orbit around the parent slot.
     const spacing = r * 1.75;
     const baseAngle = angle + time * 0.8 + slotIndex * 0.37;
 
@@ -79,6 +183,68 @@ function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time
     }
 
     return out;
+}
+
+function syncPetalBodies(player, slotIndex, petal, type) {
+    if (!player || !petal || !type) return [];
+
+    syncPetalMultiState(petal);
+
+    const amount = resolvePetalMultiCount(type, petal.rarity);
+
+    if (!Array.isArray(petal.multiBodies)) {
+        petal.multiBodies = [];
+    }
+
+    while (petal.multiBodies.length < amount) {
+        petal.multiBodies.push({
+            x: player.x,
+            y: player.y,
+            vx: 0,
+            vy: 0,
+            index: petal.multiBodies.length,
+            angle: 0
+        });
+    }
+
+    petal.multiBodies.length = amount;
+
+    for (let i = 0; i < amount; i++) {
+        if (!petal.multiBodies[i]) {
+            petal.multiBodies[i] = {
+                x: player.x,
+                y: player.y,
+                vx: 0,
+                vy: 0,
+                index: i,
+                angle: 0
+            };
+        }
+
+        petal.multiBodies[i].index = i;
+
+        if (!Number.isFinite(petal.multiBodies[i].x)) petal.multiBodies[i].x = player.x;
+        if (!Number.isFinite(petal.multiBodies[i].y)) petal.multiBodies[i].y = player.y;
+        if (!Number.isFinite(petal.multiBodies[i].vx)) petal.multiBodies[i].vx = 0;
+        if (!Number.isFinite(petal.multiBodies[i].vy)) petal.multiBodies[i].vy = 0;
+        if (!Number.isFinite(petal.multiBodies[i].angle)) petal.multiBodies[i].angle = 0;
+    }
+
+    return petal.multiBodies;
+}
+
+function getPetalBodyPositions(player, slotIndex, petal, type) {
+    const pos = player.petalSim?.[slotIndex];
+    if (!pos || !petal || !type) return [];
+
+    const bodies = syncPetalBodies(player, slotIndex, petal, type);
+
+    // If dropped, these ARE the landmines now.
+    // Do not recompute them from orbit.
+    if (petal.dropped) {
+        return bodies;
+    }
+    return bodies;
 }
 
 function getMultiPetalWobble(slotIndex, subIndex, time, radius) {
@@ -134,10 +300,6 @@ const MOB_UPDATE_RANGE2 = MOB_UPDATE_RANGE * MOB_UPDATE_RANGE;
 const SUMMON_HARD_LEASH_RANGE = MOB_UPDATE_RANGE * 0.82;
 const SUMMON_SOFT_LEASH_RANGE = MOB_UPDATE_RANGE * 0.65;
 
-const INVENTORY = {
-    max: 24 // inventory slots per player
-};
-
 const CRAFTING = {
     cost: 5,
     successChanceByTargetRarity: [
@@ -163,6 +325,48 @@ const PETAL_FOLLOW = {
     stiffness: 190,
     damping: 18
 };
+
+const PETAL_DROP = {
+    lifetime: 3,
+
+    // How far the petal glides when dropped.
+    driftTime: 0.32,
+
+    // How much of its current movement it keeps.
+    inheritVelocity: 0.22,
+
+    // Extra push away from the player.
+    outwardImpulse: 85,
+
+    // Tiny sideways wobble so multi petals don't stack perfectly.
+    sideImpulse: 28,
+
+    // Softer than normal orbit following.
+    stiffness: 85,
+    damping: 18
+};
+
+function clampDropTarget(x, y, radius = PETAL.radius) {
+    return {
+        x: clamp(x, radius, WORLD.w - radius),
+        y: clamp(y, radius, WORLD.h - radius)
+    };
+}
+
+function springBodyTo(body, target, dt, stiffness = PETAL_FOLLOW.stiffness, damping = PETAL_FOLLOW.damping) {
+    if (!body || !target) return;
+
+    const ax = (target.x - body.x) * stiffness - body.vx * damping;
+    const ay = (target.y - body.y) * stiffness - body.vy * damping;
+
+    body.vx += ax * dt;
+    body.vy += ay * dt;
+
+    body.x += body.vx * dt;
+    body.y += body.vy * dt;
+
+    body.angle = target.angle ?? body.angle ?? 0;
+}
 
 const PETAL_WOBBLE = {
     ampMin: 1.5,
@@ -204,16 +408,6 @@ function canDamageFaction(attackerFaction, targetFaction) {
     return true;
 }
 
-// For target scanning. Same logic, but slightly stricter naming.
-function isEnemyFaction(a, b) {
-    return canDamageFaction(a, b);
-}
-
-// Keep old calls from exploding.
-function isHostileFaction(a, b) {
-    return isEnemyFaction(a, b);
-}
-
 function clampPetalRarity(r) {
     return clamp((r | 0), PETAL_RARITY.min, PETAL_RARITY.max);
 }
@@ -250,27 +444,37 @@ function rollDropRarityFromMob(mobRarity) {
     if (r < 0.55) return clamp(maxDrop, 0, cap);
     if (r < 0.80) return clamp(maxDrop - 1, 0, cap);
     if (r < 0.93) return clamp(maxDrop - 2, 0, cap);
-    if (r < 0.985) return clamp(maxDrop - 3, 0, cap);
 
-    return 0;
+    return clamp(base - 2, 0, cap);
 }
 
 // Petal type definitions are loaded from staticdata.js
 
 function resolvePetalMultiCount(type, rarity) {
-    const multi = type?.multi ?? 1;
+    const r = clampPetalRarity(rarity);
+    const multi = type?.multi;
 
+    // Exact per-rarity amount.
     if (Array.isArray(multi)) {
-        const r = clampPetalRarity(rarity);
-        return clamp((multi[r] ?? multi[multi.length - 1] ?? 1) | 0, 0, 32);
+        return clamp(
+            (multi[r] ?? multi[multi.length - 1] ?? 1) | 0,
+            1,
+            32
+        );
     }
 
-    return clamp((multi | 0), 0, 32);
+    // Fixed amount.
+    if (Number.isFinite(multi)) {
+        return clamp(multi | 0, 1, 32);
+    }
+
+    // Every petal is still internally a multi petal.
+    // It just has one body by default.
+    return 1;
 }
 
 function resolvePetalClumps(type, rarity) {
-    const count = Math.max(1, resolvePetalMultiCount(type, rarity));
-    return !!type?.clumps && count > 1;
+    return !!type?.clumps && resolvePetalMultiCount(type, rarity) > 1;
 }
 
 function getPetalMultiDamage(petal, type) {
@@ -290,13 +494,11 @@ function getPetalSlotAmount(player, slotIndex) {
     const type = PetalTypes[petal.typeId];
     if (!type) return 1;
 
-    const amount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
-    const clumps = resolvePetalClumps(type, petal.rarity);
+    const amount = resolvePetalMultiCount(type, petal.rarity);
 
-    // Second-doc behavior:
-    // clumped multi advances by 1 orbit position
-    // non-clumped multi advances by amount orbit positions
-    return clumps ? 1 : amount;
+    // Clumped multis occupy one orbit slot.
+    // Spread multis occupy one slot per subpetal.
+    return resolvePetalClumps(type, petal.rarity) ? 1 : amount;
 }
 
 function getPetalOrbitLayout(player) {
@@ -388,7 +590,7 @@ function getPlayerMaxPetalReach(player) {
         if (!type) continue;
 
         const amount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
-        const r = getMultiPetalRadius(type, petal.rarity);
+        const r = getPetalRadius(type, petal.rarity);
 
         if (resolvePetalClumps(type, petal.rarity)) {
             // Clumped petals can extend a little around their parent slot.
@@ -402,18 +604,60 @@ function getPlayerMaxPetalReach(player) {
     return reach;
 }
 
+function getPetalReloadTime(type, rarity) {
+    const base = Number.isFinite(type?.reload) ? type.reload : 1;
+    const r = clampPetalRarity(rarity);
+
+    // Exact per-rarity reloads:
+    // reloadByRarity: [R0, R1, R2, ...]
+    if (Array.isArray(type?.reloadByRarity)) {
+        return Math.max(
+            0,
+            type.reloadByRarity[r] ?? type.reloadByRarity[type.reloadByRarity.length - 1] ?? base
+        );
+    }
+
+    // Multiplies base reload by per-rarity values:
+    // reloadScaling: [1, 0.9, 0.8, ...]
+    if (Array.isArray(type?.reloadScaling)) {
+        const mult = type.reloadScaling[r] ?? type.reloadScaling[type.reloadScaling.length - 1] ?? 1;
+        return Math.max(0, base * mult);
+    }
+
+    // Simple exponential multiplier:
+    // reloadScalePerRarity: 0.85 means each rarity makes reload 15% shorter
+    if (Number.isFinite(type?.reloadScalePerRarity)) {
+        return Math.max(0, base * Math.pow(type.reloadScalePerRarity, r));
+    }
+
+    // Old flag, still supported.
+    if (type?.reloadHalvesByRarity) {
+        return Math.max(0, base * Math.pow(0.5, r));
+    }
+
+    return Math.max(0, base);
+}
+
+function getPetalMaxHp(type, rarity) {
+    const base = type?.maxHp ?? 1;
+
+    if (type?.fixedMaxHp) {
+        return base;
+    }
+
+    return base * petalStatScale(rarity);
+}
+
 function getPetalRadius(type, rarity) {
     const mult = Number.isFinite(type?.radius) ? type.radius : 1;
     return PETAL.radius * mult;
 }
 
-function getMultiPetalRadius(type, rarity) {
-    return getPetalRadius(type, rarity);
-}
-
 function syncPetalMultiState(petal) {
+    if (!petal) return;
+
     const type = PetalTypes[petal.typeId];
-    const amount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
+    const amount = resolvePetalMultiCount(type, petal.rarity);
 
     if (!Array.isArray(petal.multiHp)) petal.multiHp = [];
     if (!Array.isArray(petal.multiHitCd)) petal.multiHitCd = [];
@@ -435,7 +679,12 @@ function syncPetalMultiState(petal) {
         if (!Number.isFinite(petal.multiHitCd[i])) petal.multiHitCd[i] = 0;
         if (!Number.isFinite(petal.multiDamageCd[i])) petal.multiDamageCd[i] = 0;
         if (!Number.isFinite(petal.multiReloadLeft[i])) petal.multiReloadLeft[i] = 0;
+
+        petal.multiHp[i] = clamp(petal.multiHp[i], 0, petal.maxHp);
+        petal.multiReloadLeft[i] = Math.max(0, petal.multiReloadLeft[i]);
     }
+
+    petal.hp = petal.multiHp.reduce((sum, hp) => sum + Math.max(0, hp || 0), 0);
 }
 
 function petalMultiAliveCount(petal) {
@@ -455,7 +704,6 @@ const MobTypeList = Object.values(MobTypes);
 // -------------------- Mob Object Types (projectiles, etc.) --------------------
 let nextMobObjectId = 1;
 const mobObjects = [];
-const deadSet = new Set();
 class MobObject {
     constructor(type, rarity, x, y, angle, targetPlayerId, ownerMobId) {
         this.id = nextMobObjectId++;
@@ -568,6 +816,34 @@ function zapTarget(from, target, damage) {
     return true;
 }
 
+function findNearestLightningBounce(mob, current, hit, range2) {
+    let next = null;
+    let bestD2 = range2;
+
+    function scan(list) {
+        for (let i = 0; i < list.length; i++) {
+            const other = list[i];
+
+            if (!other || other === mob || other === current) continue;
+            if (hit.has(other.id)) continue;
+            if (!canTakeDamage(other)) continue;
+            if (!canDamageFaction(mob.faction, other.faction)) continue;
+
+            const d2 = dist2(current.x, current.y, other.x, other.y);
+
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                next = other;
+            }
+        }
+    }
+
+    scan(playersArr);
+    scan(mobsArr);
+
+    return next;
+}
+
 function fireMobLightning(mob, firstTarget) {
     const cfg = getMobLightningConfig(mob);
     if (!cfg || !firstTarget) return;
@@ -581,25 +857,12 @@ function fireMobLightning(mob, firstTarget) {
         zapTarget(mob, current, cfg.damage);
         hit.add(current.id);
 
-        let next = null;
-        let bestD2 = cfg.range * cfg.range;
-
-        const candidates = [...playersArr, ...mobsArr];
-
-        for (const other of candidates) {
-            if (!other || other === mob || other === current) continue;
-            if (hit.has(other.id)) continue;
-            if (!canTakeDamage(other)) continue;
-            if (!isEnemyFaction(mob.faction, other.faction)) continue;
-
-            const d2 = dist2(current.x, current.y, other.x, other.y);
-            if (d2 < bestD2) {
-                bestD2 = d2;
-                next = other;
-            }
-        }
-
-        current = next;
+        current = findNearestLightningBounce(
+            mob,
+            current,
+            hit,
+            cfg.range * cfg.range
+        );
     }
 }
 
@@ -623,7 +886,7 @@ function findNearestEnemyInGrid(self, grid, cellSize, range) {
             for (let i = 0; i < bucket.length; i++) {
                 const other = bucket[i];
                 if (other === self || other.hp <= 0) continue;
-                if (!isHostileFaction(self.faction, other.faction)) continue;
+                if (!canDamageFaction(self.faction, other.faction)) continue;
 
                 const ddx = other.x - self.x;
                 const ddy = other.y - self.y;
@@ -648,7 +911,7 @@ function findNearestEnemyMobForSummon(summon, range) {
     for (const mob of mobsArr) {
         if (!mob || mob === summon || mob.hp <= 0) continue;
         if (mob.isPetalSummon) continue;
-        if (!isEnemyFaction(summon.faction, mob.faction)) continue;
+        if (!canDamageFaction(summon.faction, mob.faction)) continue;
 
         const d2 = dist2(summon.x, summon.y, mob.x, mob.y);
 
@@ -900,15 +1163,61 @@ let nextMobId = 1;
 let nextPickupId = 1;
 
 function killPetalSummon(petal) {
-    if (!petal || petal.summonMobId == null) return;
+    if (!petal) return;
 
-    const summon = mobById.get(petal.summonMobId);
+    const ids = [];
 
-    if (summon && summon.hp > 0) {
-        summon.hp = 0;
+    if (petal.summonMobId != null) {
+        ids.push(petal.summonMobId);
+    }
+
+    if (Array.isArray(petal.summonMobIds)) {
+        for (const id of petal.summonMobIds) {
+            if (id != null) ids.push(id);
+        }
+    }
+
+    for (const id of ids) {
+        const summon = mobById.get(id);
+
+        if (summon && summon.hp > 0) {
+            summon.hp = 0;
+        }
     }
 
     petal.summonMobId = null;
+    petal.summonMobIds = [];
+}
+
+function killPlayerSummons(player) {
+    if (!player) return;
+
+    // Kill summons linked directly from equipped petals.
+    if (Array.isArray(player.petals)) {
+        for (const petal of player.petals) {
+            killPetalSummon(petal);
+        }
+    }
+
+    // Just in case a summon somehow belongs to a secondary petal too.
+    if (Array.isArray(player.secondaryPetals)) {
+        for (const petal of player.secondaryPetals) {
+            killPetalSummon(petal);
+        }
+    }
+
+    // Backup cleanup: kill any living petal summon owned by this player,
+    // even if the petal link got weird.
+    for (let i = mobs.length - 1; i >= 0; i--) {
+        const mob = mobs[i];
+
+        if (!mob) continue;
+        if (!mob.isPetalSummon) continue;
+        if (mob.ownerPlayerId !== player.id) continue;
+        if (mob.hp <= 0) continue;
+
+        mob.hp = 0;
+    }
 }
 
 // -------------------- Game Objects --------------------
@@ -929,7 +1238,7 @@ class Petal {
         const scale = petalStatScale(this.rarity);
 
         this.dmg = (t.dmg ?? 0) * scale;
-        this.maxHp = (t.maxHp ?? 1) * scale;
+        this.maxHp = getPetalMaxHp(t, this.rarity);
         this.hp = this.maxHp;
 
         this.multiHp = [];
@@ -938,12 +1247,18 @@ class Petal {
         this.multiReloadLeft = [];
         syncPetalMultiState(this);
 
-        this.reloadTime = t.reload;
+        this.reloadTime = getPetalReloadTime(t, this.rarity);
         this.reloadLeft = 0;
 
         this.dropped = false;
         this.dropX = 0;
         this.dropY = 0;
+
+        this.dropAge = 0;
+        this.dropSettleTime = 0.75;
+        this.dropTargets = [];
+
+        this.multiBodies = [];
 
         // rose-only
         this.healAmount = (t.heal ?? 0) * scale;
@@ -981,6 +1296,35 @@ class Petal {
         this.dropped = false;
         this.dropX = 0;
         this.dropY = 0;
+
+        this.dropAge = 0;
+        this.dropTargets = [];
+
+        this.multiBodies = [];
+    }
+
+    forceReloadSub(subIndex = 0) {
+        syncPetalMultiState(this);
+
+        subIndex = clamp(subIndex | 0, 0, this.multiHp.length - 1);
+
+        this.multiHp[subIndex] = 0;
+        this.multiHitCd[subIndex] = 0;
+        this.multiDamageCd[subIndex] = 0;
+        this.multiReloadLeft[subIndex] = this.reloadTime;
+
+        this.hp = this.multiHp.reduce((sum, hp) => {
+            return sum + Math.max(0, hp || 0);
+        }, 0);
+
+        this.reloadLeft = this.multiReloadLeft.reduce((best, t) => {
+            if (t > 0 && t < best) return t;
+            return best;
+        }, Infinity);
+
+        if (this.reloadLeft === Infinity) {
+            this.reloadLeft = 0;
+        }
     }
 
     forceReloadAndKillSummon() {
@@ -1095,6 +1439,49 @@ function getPlayerPetalAttractionBonus(player) {
     return bonus;
 }
 
+function getPlayerPetalSpeedMultiplier(player) {
+    if (!player || !Array.isArray(player.petals)) return 1;
+
+    let bonus = 0;
+
+    for (const petal of player.petals) {
+        if (!petal || !petal.isAlive()) continue;
+
+        const type = PetalTypes[petal.typeId];
+        if (!type) continue;
+
+        const base = type.petalSpeedBonus ?? 0;
+        const perRarity = type.petalSpeedBonusPerRarity ?? 0;
+
+        bonus += base + perRarity * clampPetalRarity(petal.rarity ?? 0);
+    }
+
+    return Math.max(0.1, 1 + bonus);
+}
+
+function getPlayerMaxHpBonus(player) {
+    if (!player || !Array.isArray(player.petals)) return 0;
+
+    let bonus = 0;
+
+    for (let slotIndex = 0; slotIndex < player.petals.length; slotIndex++) {
+        const petal = player.petals[slotIndex];
+        if (!petal) continue;
+        if (isPetalSlotStackDisabled(player, slotIndex)) continue;
+
+        const type = PetalTypes[petal.typeId];
+        if (!type) continue;
+
+        const base = type.maxHpBonus ?? 0;
+        if (base <= 0) continue;
+
+        const scale = petalStatScale(petal.rarity ?? 0);
+        bonus += base * scale;
+    }
+
+    return bonus;
+}
+
 function getPlayerAggroRangeMultiplier(player) {
     // Poo only works while the poo petal is alive.
     // When it dies/reloads, this automatically returns normal range.
@@ -1103,6 +1490,82 @@ function getPlayerAggroRangeMultiplier(player) {
     }
 
     return 1.0;
+}
+
+function popBubblePetals(player) {
+    if (!player || !Array.isArray(player.petals)) return false;
+
+    let poppedAny = false;
+
+    const orbitData = getPetalOrbitLayout(player);
+
+    for (let slotIndex = 0; slotIndex < player.petals.length; slotIndex++) {
+        const petal = player.petals[slotIndex];
+        if (!petal || petal.disabledByStack) continue;
+
+        const type = PetalTypes[petal.typeId];
+        if (!type?.rightClickPop) continue;
+        if (!petal.isAlive()) continue;
+        if (isPetalSlotStackDisabled(player, slotIndex)) continue;
+
+        const info = orbitData.layout[slotIndex];
+        if (!info) continue;
+
+        // Direction from player to this petal in orbit.
+        const orbitAngle = getVirtualPetalAngle(player, info.start, orbitData.total);
+
+        const rarity = clampPetalRarity(petal.rarity ?? 0);
+        const impulse =
+            (type.popImpulse ?? 420) +
+            (type.popImpulsePerRarity ?? 0) * rarity;
+
+        // Opposite direction of where the petal is.
+        player.bubblePushVx = (player.bubblePushVx || 0) - Math.cos(orbitAngle) * impulse;
+        player.bubblePushVy = (player.bubblePushVy || 0) - Math.sin(orbitAngle) * impulse;
+
+        // Keep inside world.
+        player.x = clamp(player.x, PLAYER.radius, WORLD.w - PLAYER.radius);
+        player.y = clamp(player.y, PLAYER.radius, WORLD.h - PLAYER.radius);
+
+        // Bubble pop reloads the whole bubble slot.
+        petal.forceReload();
+
+        poppedAny = true;
+    }
+
+    return poppedAny;
+}
+
+function buildPlayerPetalCollisionCache(player) {
+    const cache = [];
+
+    for (let i = 0; i < player.petals.length; i++) {
+        const petal = player.petals[i];
+
+        if (!petal || petal.disabledByStack || !petal.isAlive()) {
+            cache[i] = null;
+            continue;
+        }
+
+        const type = PetalTypes[petal.typeId];
+        if (!type) {
+            cache[i] = null;
+            continue;
+        }
+
+        const bodies = getPetalBodyPositions(player, i, petal, type);
+        const radius = getPetalRadius(type, petal.rarity);
+
+        cache[i] = {
+            petal,
+            type,
+            bodies,
+            radius,
+            dropped: !!petal.dropped
+        };
+    }
+
+    return cache;
 }
 
 class PlayerState {
@@ -1115,10 +1578,21 @@ class PlayerState {
         this.vx = 0;
         this.vy = 0;
 
+        this.radius = PLAYER.radius;
+
         this.faction = FACTION.PLAYER;
 
-        this.maxHp = PLAYER.maxHp;
-        this.hp = PLAYER.maxHp;
+        this.level = 0;
+        this.exp = 0;
+        this.expToNext = getExpRequiredForNextLevel(this.level);
+
+        this.slotCount = getPlayerSlotCountForLevel(this.level);
+
+        this.baseMaxHp = getPlayerBaseMaxHpForLevel(this.level);
+        this.bodyDmg = getPlayerBodyDmgForLevel(this.level);
+
+        this.maxHp = this.baseMaxHp;
+        this.hp = this.maxHp;
 
         this.angleBase = randf(0, Math.PI * 2);
 
@@ -1134,11 +1608,17 @@ class PlayerState {
             mouseX: 0,
             mouseY: 0
         };
+
+        this.wasRetracting = false;
+
         this.godMode = false;
 
+        // inventory stores TYPE IDs (strings)
+        this.inv = [];
+
         // initial loadout random for now
-        this.petals = Array.from({ length: PETAL.count }, () => new Petal("basic", 0));
-        this.secondaryPetals = Array.from({ length: PETAL.count }, () => new Petal("basic", 0));
+        this.petals = Array.from({ length: this.slotCount }, () => new Petal("basic", 0));
+        this.secondaryPetals = Array.from({ length: this.slotCount }, () => new Petal("basic", 0));
 
         // inventory stores TYPE IDs (strings)
         this.inv = [];
@@ -1148,7 +1628,14 @@ class PlayerState {
 
         this.time = 0;
 
-        this.petalWobble = Array.from({ length: PETAL.count }, () => ({
+        this.petalWobble = Array.from({ length: this.slotCount }, () => this.makePetalWobble());
+        this.petalSim = Array.from({ length: this.slotCount }, () => ({ x: 0, y: 0, vx: 0, vy: 0 }));
+
+        this.snapPetalsToTargets();
+    }
+
+    makePetalWobble() {
+        return {
             ax: randf(PETAL_WOBBLE.ampMin, PETAL_WOBBLE.ampMax),
             ay: randf(PETAL_WOBBLE.ampMin, PETAL_WOBBLE.ampMax),
             ax2: randf(PETAL_WOBBLE.amp2Min, PETAL_WOBBLE.amp2Max),
@@ -1163,15 +1650,203 @@ class PlayerState {
             phy: randf(0, Math.PI * 2),
             phx2: randf(0, Math.PI * 2),
             phy2: randf(0, Math.PI * 2)
-        }));
+        };
+    }
 
-        this.petalSim = Array.from({ length: PETAL.count }, () => ({ x: 0, y: 0, vx: 0, vy: 0 }));
+    syncSlotCount() {
+        const wanted = getPlayerSlotCountForLevel(this.level);
+        this.slotCount = wanted;
+
+        while (this.petals.length < wanted) {
+            this.petals.push(new Petal("basic", 0));
+        }
+
+        while (this.secondaryPetals.length < wanted) {
+            this.secondaryPetals.push(new Petal("basic", 0));
+        }
+
+        while (this.petalWobble.length < wanted) {
+            this.petalWobble.push(this.makePetalWobble());
+        }
+
+        while (this.petalSim.length < wanted) {
+            this.petalSim.push({ x: this.x, y: this.y, vx: 0, vy: 0 });
+        }
+
+        // Only matters if you manually lower level in dev tools.
+        while (this.petals.length > wanted) {
+            const petal = this.petals.pop();
+            if (petal) {
+                killPetalSummon(petal);
+                this.inv.push({ typeId: petal.typeId, rarity: petal.rarity });
+            }
+        }
+
+        while (this.secondaryPetals.length > wanted) {
+            const petal = this.secondaryPetals.pop();
+            if (petal) {
+                killPetalSummon(petal);
+                this.inv.push({ typeId: petal.typeId, rarity: petal.rarity });
+            }
+        }
+
+        this.petalWobble.length = wanted;
+        this.petalSim.length = wanted;
+    }
+
+    syncLevelStats() {
+        const oldMaxHp = this.maxHp;
+
+        this.level = clamp(
+            Math.floor(Number(this.level) || 0),
+            0,
+            LEVELING.maxLevel
+        );
+        this.baseMaxHp = getPlayerBaseMaxHpForLevel(this.level);
+        this.bodyDmg = getPlayerBodyDmgForLevel(this.level);
+
+        this.syncSlotCount();
+
+        this.maxHp = this.baseMaxHp + getPlayerMaxHpBonus(this);
+
+        if (this.maxHp > oldMaxHp) {
+            this.hp += this.maxHp - oldMaxHp;
+        }
+
+        this.hp = clamp(this.hp, 0, this.maxHp);
+        this.expToNext = getExpRequiredForNextLevel(this.level);
+    }
+
+    setLevel(level) {
+        this.level = clamp(
+            Math.floor(Number(level) || 0),
+            0,
+            LEVELING.maxLevel
+        );
+
+        if (this.level >= LEVELING.maxLevel) {
+            this.exp = 0;
+        } else {
+            this.exp = clamp(
+                Number(this.exp) || 0,
+                0,
+                getExpRequiredForNextLevel(this.level) - 1
+            );
+        }
+
+        this.syncLevelStats();
         this.snapPetalsToTargets();
+    }
+
+    addLevels(amount = 1) {
+        this.setLevel(this.level + Math.max(0, Math.floor(Number(amount) || 0)));
+    }
+
+    addExp(amount) {
+        amount = Math.max(0, Math.floor(Number(amount) || 0));
+
+        if (this.level >= LEVELING.maxLevel) {
+            this.level = LEVELING.maxLevel;
+            this.exp = 0;
+            this.expToNext = 0;
+
+            return {
+                expGained: 0,
+                levelsGained: 0,
+                level: this.level,
+                exp: this.exp,
+                expToNext: this.expToNext
+            };
+        }
+
+        if (amount <= 0) {
+            return {
+                expGained: 0,
+                levelsGained: 0,
+                level: this.level,
+                exp: this.exp,
+                expToNext: this.expToNext
+            };
+        }
+
+        this.exp = Math.max(0, Number(this.exp) || 0) + amount;
+
+        let levelsGained = 0;
+
+        while (
+            this.level < LEVELING.maxLevel &&
+            this.exp >= getExpRequiredForNextLevel(this.level)
+        ) {
+            const needed = getExpRequiredForNextLevel(this.level);
+
+            this.exp -= needed;
+            this.level++;
+            levelsGained++;
+
+            if (levelsGained > LEVELING.maxLevel + 5) break;
+        }
+
+        if (this.level >= LEVELING.maxLevel) {
+            this.level = LEVELING.maxLevel;
+            this.exp = 0;
+            this.expToNext = 0;
+        } else if (levelsGained > 0) {
+            this.syncLevelStats();
+            this.snapPetalsToTargets();
+        } else {
+            this.expToNext = getExpRequiredForNextLevel(this.level);
+        }
+
+        return {
+            expGained: amount,
+            levelsGained,
+            level: this.level,
+            exp: this.exp,
+            expToNext: this.expToNext
+        };
+    }
+
+    refreshPetalStackDisabledCache() {
+        if (!this._stackDisabled || this._stackDisabled.length !== this.petals.length) {
+            this._stackDisabled = new Array(this.petals.length).fill(false);
+        }
+
+        const seenUnstackable = new Set();
+
+        for (let i = 0; i < this.petals.length; i++) {
+            const petal = this.petals[i];
+            let disabled = false;
+
+            if (petal) {
+                const type = PetalTypes[petal.typeId];
+
+                if (type?.unstackable) {
+                    if (seenUnstackable.has(petal.typeId)) {
+                        disabled = true;
+                    } else {
+                        seenUnstackable.add(petal.typeId);
+                    }
+                }
+            }
+
+            this._stackDisabled[i] = disabled;
+
+            if (petal) {
+                petal.disabledByStack = disabled;
+            }
+        }
+    }
+
+    isSlotStackDisabledFast(slotIndex) {
+        return !!this._stackDisabled?.[slotIndex];
     }
 
     update(dt) {
         let ix = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
         let iy = (this.input.down ? 1 : 0) - (this.input.up ? 1 : 0);
+
+        this.syncLevelStats();
+        this.refreshPetalStackDisabledCache();
 
         const speed = this.godMode ? PLAYER.speed * 10 : PLAYER.speed;
 
@@ -1203,7 +1878,32 @@ class PlayerState {
             this.vy = iy * invLen * speed;
         }
 
+        const retractPressed = !!this.input.retract;
+
+        if (retractPressed) {
+            popBubblePetals(this);
+
+            // Droppable petals should still only drop once per press.
+            if (!this.wasRetracting) {
+                this.dropDroppablePetals();
+            }
+        }
+
+        this.wasRetracting = retractPressed;
+
         // attempt move with wall collision
+        if (this.bubblePushVx || this.bubblePushVy) {
+            this.vx += this.bubblePushVx || 0;
+            this.vy += this.bubblePushVy || 0;
+
+            const decay = Math.exp(-10 * dt);
+            this.bubblePushVx *= decay;
+            this.bubblePushVy *= decay;
+
+            if (Math.abs(this.bubblePushVx) < 1) this.bubblePushVx = 0;
+            if (Math.abs(this.bubblePushVy) < 1) this.bubblePushVy = 0;
+        }
+
         const tryX = clamp(this.x + this.vx * dt, PLAYER.radius, WORLD.w - PLAYER.radius);
         if (this.godMode || !isWallAt(tryX, this.y)) {
             this.x = tryX;
@@ -1215,14 +1915,15 @@ class PlayerState {
 
         const yinYangCount = getPetalTypeCount(this, "yinYang");
         const rotationDir = (yinYangCount % 2 === 1) ? -1 : 1;
+        const petalSpeedMult = getPlayerPetalSpeedMultiplier(this);
 
-        this.angleBase += PETAL.orbitSpeed * rotationDir * dt;
+        this.angleBase += PETAL.orbitSpeed * petalSpeedMult * rotationDir * dt;
 
         for (let i = 0; i < this.petals.length; i++) {
             const p = this.petals[i];
             if (!p) continue;
 
-            if (isPetalSlotStackDisabled(this, i)) {
+            if (this.isSlotStackDisabledFast(i)) {
                 p.disabledByStack = true;
                 continue;
             }
@@ -1247,10 +1948,10 @@ class PlayerState {
 
     _updatePetalSim(dt) {
         const orbitData = getPetalOrbitLayout(this);
-        for (let i = 0; i < PETAL.count; i++) {
+        for (let i = 0; i < this.petals.length; i++) {
             const petal = this.petals[i];
 
-            if (petal && isPetalSlotStackDisabled(this, i)) {
+            if (petal && this.isSlotStackDisabledFast(i)) {
                 petal.disabledByStack = true;
 
                 const s = this.petalSim[i];
@@ -1263,12 +1964,80 @@ class PlayerState {
             }
 
             if (petal?.dropped) {
-                const s = this.petalSim[i];
+                const type = PetalTypes[petal.typeId];
 
-                s.x = petal.dropX;
-                s.y = petal.dropY;
+                syncPetalMultiState(petal);
+
+                if (!Array.isArray(petal.multiBodies)) {
+                    petal.multiBodies = [];
+                }
+
+                const amount = resolvePetalMultiCount(type, petal.rarity);
+
+                while (petal.multiBodies.length < amount) {
+                    const target = petal.dropTargets?.[petal.multiBodies.length];
+                    petal.multiBodies.push({
+                        x: target?.x ?? petal.dropX ?? this.x,
+                        y: target?.y ?? petal.dropY ?? this.y,
+                        vx: 0,
+                        vy: 0,
+                        index: petal.multiBodies.length,
+                        angle: target?.angle ?? 0
+                    });
+                }
+
+                petal.multiBodies.length = amount;
+
+                const bodies = petal.multiBodies;
+
+                petal.dropAge = (petal.dropAge ?? 0) + dt;
+
+                if (petal.dropAge >= PETAL_DROP.lifetime) {
+                    petal.forceReload();
+                    continue;
+                }
+
+                for (let j = 0; j < bodies.length; j++) {
+                    const body = bodies[j];
+                    const target = petal.dropTargets?.[j];
+
+                    if (!target) continue;
+
+                    // Always spring toward the resting point.
+                    // Never hard-snap, because snapping is the enemy of looking alive.
+                    springBodyTo(
+                        body,
+                        target,
+                        dt,
+                        PETAL_DROP.stiffness,
+                        PETAL_DROP.damping
+                    );
+
+                    const radius = getPetalRadius(type, petal.rarity);
+
+                    body.x = clamp(body.x, radius, WORLD.w - radius);
+                    body.y = clamp(body.y, radius, WORLD.h - radius);
+
+                    if (isWallAt(body.x, body.y)) {
+                        body.x = target.x;
+                        body.y = target.y;
+                        body.vx = 0;
+                        body.vy = 0;
+                    }
+
+                    body.angle = target.angle ?? body.angle ?? 0;
+                }
+
+                const first = bodies[0];
+
+                const s = this.petalSim[i];
+                s.x = first?.x ?? petal.dropX;
+                s.y = first?.y ?? petal.dropY;
                 s.vx = 0;
                 s.vy = 0;
+
+                petal.dropX = s.x;
+                petal.dropY = s.y;
 
                 continue;
             }
@@ -1297,6 +2066,54 @@ class PlayerState {
 
             s.x += s.vx * dt;
             s.y += s.vy * dt;
+
+            this.updateOrbitingMultiBodies(i, petal, dt);
+        }
+    }
+
+    updateOrbitingMultiBodies(slotIndex, petal, dt) {
+        if (!petal || petal.dropped || petal.disabledByStack) return;
+
+        const type = PetalTypes[petal.typeId];
+        if (!type) return;
+
+        const pos = this.petalSim?.[slotIndex];
+        if (!pos) return;
+
+        const bodies = syncPetalBodies(this, slotIndex, petal, type);
+        const amount = resolvePetalMultiCount(type, petal.rarity);
+
+        const petalAngle = Math.atan2(pos.y - this.y, pos.x - this.x) || 0;
+
+        const targets = getMultiPetalPositions(
+            pos.x,
+            pos.y,
+            petalAngle,
+            type,
+            petal.rarity,
+            slotIndex,
+            this.time,
+            this
+        );
+
+        for (let i = 0; i < bodies.length; i++) {
+            const body = bodies[i];
+            const target = targets[i] ?? targets[0] ?? pos;
+
+            body.index = i;
+
+            // A normal single petal already has looseness from petalSim.
+            // Don't double-spring it or it will feel drunk.
+            if (amount === 1) {
+                body.x = pos.x;
+                body.y = pos.y;
+                body.vx = this.petalSim[slotIndex].vx ?? 0;
+                body.vy = this.petalSim[slotIndex].vy ?? 0;
+                body.angle = petalAngle;
+                continue;
+            }
+
+            springBodyTo(body, target, dt);
         }
     }
 
@@ -1317,8 +2134,10 @@ class PlayerState {
         const attractStrength = baseAttractStrength + lentilBonus;
         let best = null;
 
-        for (const mob of mobsArr) {
-            if (!mob || mob.hp <= 0) continue;
+        const maxQueryRange = 260 + lentilBonus * 180;
+
+        forEachMobNearPetal(tx, ty, maxQueryRange, (mob) => {
+            if (!mob || mob.hp <= 0) return;
 
             const mobRangeBonus = mob.radius * (1.8 + lentilBonus * 10);
             const attractRange = 95 + mobRangeBonus;
@@ -1331,7 +2150,7 @@ class PlayerState {
                 bestD2 = d2;
                 best = mob;
             }
-        }
+        });
 
         if (best) {
             tx += (best.x - tx) * attractStrength;
@@ -1346,7 +2165,7 @@ class PlayerState {
     }
 
     snapPetalsToTargets() {
-        for (let i = 0; i < PETAL.count; i++) {
+        for (let i = 0; i < this.petals.length; i++) {
             const t = this.getPetalTargetWorldPos(i);
             const s = this.petalSim[i];
             s.x = t.x;
@@ -1448,8 +2267,14 @@ class PlayerState {
 
         const success = Math.random() < chance;
 
+        let expInfo = null;
+        let expGained = 0;
+
         if (success) {
             this.addToInventory(typeId, targetRarity);
+
+            expGained = getCraftSuccessExp(targetRarity);
+            expInfo = this.addExp(expGained);
         }
 
         return {
@@ -1459,6 +2284,11 @@ class PlayerState {
             rarity,
             targetRarity,
             chance,
+            expGained,
+            level: this.level,
+            exp: this.exp,
+            expToNext: this.expToNext,
+            levelsGained: expInfo?.levelsGained ?? 0,
             message: success
                 ? `Craft succeeded: ${typeId} R${rarity} → R${targetRarity}`
                 : `Craft failed: lost ${CRAFTING.cost} ${typeId} R${rarity}`
@@ -1485,6 +2315,8 @@ class PlayerState {
         const attempts = results.filter(r => r.ok).length;
         const successes = results.filter(r => r.ok && r.success).length;
         const failures = results.filter(r => r.ok && !r.success).length;
+        const expGained = results.reduce((sum, r) => sum + (r.expGained || 0), 0);
+        const levelsGained = results.reduce((sum, r) => sum + (r.levelsGained || 0), 0);
 
         return {
             ok: attempts > 0,
@@ -1493,8 +2325,13 @@ class PlayerState {
             attempts,
             successes,
             failures,
+            expGained,
+            levelsGained,
+            level: this.level,
+            exp: this.exp,
+            expToNext: this.expToNext,
             message: attempts > 0
-                ? `Crafted all: ${attempts} attempts, ${successes} succeeded, ${failures} failed.`
+                ? `Crafted all: ${attempts} attempts, ${successes} succeeded, ${failures} failed. +${expGained} exp.`
                 : `Not enough ${typeId} R${rarity} to craft.`
         };
     }
@@ -1516,13 +2353,23 @@ class PlayerState {
     swapPrimaryWithSecondarySlot(i) {
         const n = this.petals.length;
         if (i < 0 || i >= n) return false;
-        if (!this.secondaryPetals || !this.secondaryPetals[i]) return false;
+
+        if (!Array.isArray(this.secondaryPetals) || this.secondaryPetals.length !== n) {
+            this.secondaryPetals = Array.from({ length: n }, () => new Petal("basic", 0));
+        }
+
+        if (!this.secondaryPetals[i]) return false;
 
         const oldPrimary = this.petals[i];
-        this.petals[i] = this.secondaryPetals[i];
+        const oldSecondary = this.secondaryPetals[i];
+
+        // Kill only the summon spawned by the petal leaving primary.
+        killPetalSummon(oldPrimary);
+
+        this.petals[i] = oldSecondary;
         this.secondaryPetals[i] = oldPrimary;
 
-        // Reload only the newly equipped primary.
+        // Reload newly equipped primary so swapping isn't free instant cheese.
         this.petals[i].forceReloadAndKillSummon();
 
         return true;
@@ -1530,16 +2377,23 @@ class PlayerState {
 
     swapAllPrimaryAndSecondary() {
         const n = this.petals.length;
+
         if (!Array.isArray(this.secondaryPetals) || this.secondaryPetals.length !== n) {
             this.secondaryPetals = Array.from({ length: n }, () => new Petal("basic", 0));
         }
 
         for (let i = 0; i < n; i++) {
             const oldPrimary = this.petals[i];
-            this.petals[i] = this.secondaryPetals[i];
+            const oldSecondary = this.secondaryPetals[i];
+
+            // Kill the summon spawned by the petal being removed from primary.
+            // This only kills oldPrimary.summonMobId, not every summon.
+            killPetalSummon(oldPrimary);
+
+            this.petals[i] = oldSecondary;
             this.secondaryPetals[i] = oldPrimary;
 
-            // Reload newly equipped petals so swapping isn't free instant cheese.
+            // Reload newly equipped primary so swapping is not free instant cheese.
             this.petals[i].forceReloadAndKillSummon();
         }
 
@@ -1550,21 +2404,83 @@ class PlayerState {
         for (let i = 0; i < this.petals.length; i++) {
             const petal = this.petals[i];
             if (!petal || !petal.isAlive()) continue;
-            if (isPetalSlotStackDisabled(this, i)) continue;
+            if (this.isSlotStackDisabledFast(i)) continue;
 
             const type = PetalTypes[petal.typeId];
             if (!type?.isDroppable) continue;
             if (petal.dropped) continue;
 
-            const pos = this.petalSim[i];
+            syncPetalMultiState(petal);
+
+            // Get exact current positions BEFORE dropped mode.
+            // This works for clumped and spread petals.
+            const bodies = getPetalBodyPositions(this, i, petal, type);
+
+            if (!Array.isArray(bodies) || bodies.length <= 0) continue;
+
+            // Snapshot the bodies directly.
+            // Do not rely on later orbit layout recalculation.
+            petal.multiBodies = bodies.map((body, j) => ({
+                x: body.x,
+                y: body.y,
+                vx: Number.isFinite(body.vx) ? body.vx : 0,
+                vy: Number.isFinite(body.vy) ? body.vy : 0,
+                index: j,
+                angle: body.angle ?? 0
+            }));
+
+            petal.dropTargets = petal.multiBodies.map((body, j) => {
+                const dx = body.x - this.x;
+                const dy = body.y - this.y;
+                const d = Math.hypot(dx, dy) || 1;
+
+                const nx = dx / d;
+                const ny = dy / d;
+
+                // Perpendicular direction, used for tiny spread.
+                const px = -ny;
+                const py = nx;
+
+                const side = ((j % 2) ? -1 : 1) * (1 + Math.floor(j / 2) * 0.35);
+
+                const vx =
+                    (Number.isFinite(body.vx) ? body.vx : 0) * PETAL_DROP.inheritVelocity +
+                    nx * PETAL_DROP.outwardImpulse +
+                    px * PETAL_DROP.sideImpulse * side;
+
+                const vy =
+                    (Number.isFinite(body.vy) ? body.vy : 0) * PETAL_DROP.inheritVelocity +
+                    ny * PETAL_DROP.outwardImpulse +
+                    py * PETAL_DROP.sideImpulse * side;
+
+                body.vx = vx;
+                body.vy = vy;
+
+                const target = clampDropTarget(
+                    body.x + vx * PETAL_DROP.driftTime,
+                    body.y + vy * PETAL_DROP.driftTime,
+                    getPetalRadius(type, petal.rarity)
+                );
+
+                return {
+                    x: target.x,
+                    y: target.y,
+                    angle: body.angle ?? 0
+                };
+            });
 
             petal.dropped = true;
-            petal.dropX = pos.x;
-            petal.dropY = pos.y;
+            petal.dropAge = 0;
+            petal.dropSettleTime = PETAL_DROP.driftTime;
 
-            // Freeze it on the ground.
-            pos.vx = 0;
-            pos.vy = 0;
+            petal.dropX = petal.dropTargets[0]?.x ?? this.petalSim[i].x;
+            petal.dropY = petal.dropTargets[0]?.y ?? this.petalSim[i].y;
+
+            const s = this.petalSim[i];
+            s.x = petal.dropX;
+            s.y = petal.dropY;
+            s.vx = 0;
+            s.vy = 0;
         }
     }
 
@@ -1610,6 +2526,16 @@ function resolveIdleFn(name) {
     return IdleTypes[name] || IdleTypes.wander;
 }
 
+function getEntityMass(ent) {
+    if (!ent) return 1;
+
+    // Players should barely push mobs back.
+    // Lower = player gets shoved more, mob barely moves.
+    if (ent instanceof PlayerState) return 0.03;
+
+    return Number.isFinite(ent.mass) ? ent.mass : 1;
+}
+
 function resolveCircleOverlap(a, b, ra, rb) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
@@ -1624,24 +2550,26 @@ function resolveCircleOverlap(a, b, ra, rb) {
 
     const overlap = rsum - d;
 
-    // default: split correction
-    let pushA = overlap * 0.5;
-    let pushB = overlap * 0.5;
+    const massA = getEntityMass(a);
+    const massB = getEntityMass(b);
+    const totalMass = Math.max(0.0001, massA + massB);
 
-    // attempt split push
+    // Lighter thing moves more. Heavy thing barely moves.
+    const pushA = overlap * (massB / totalMass);
+    const pushB = overlap * (massA / totalMass);
+
     const ax0 = a.x, ay0 = a.y;
     const bx0 = b.x, by0 = b.y;
 
     moveWithWalls(a, nx * pushA, ny * pushA, ra);
     moveWithWalls(b, -nx * pushB, -ny * pushB, rb);
 
-    // if one got blocked by a wall tile, dump more correction into the other
     const aMoved = (a.x !== ax0) || (a.y !== ay0);
     const bMoved = (b.x !== bx0) || (b.y !== by0);
 
     if (aMoved && bMoved) return true;
 
-    // revert and retry one-sided
+    // Revert and retry one-sided if one body got blocked.
     a.x = ax0; a.y = ay0;
     b.x = bx0; b.y = by0;
 
@@ -1649,12 +2577,12 @@ function resolveCircleOverlap(a, b, ra, rb) {
         moveWithWalls(b, -nx * overlap, -ny * overlap, rb);
         return true;
     }
+
     if (aMoved && !bMoved) {
         moveWithWalls(a, nx * overlap, ny * overlap, ra);
         return true;
     }
 
-    // both blocked: do nothing (better than phasing into walls)
     return false;
 }
 
@@ -2217,6 +3145,32 @@ IdleTypes.wanderSine = (mob, dt) => {
     setMobDesiredMove(mob, angle, mob.idleSpeed);
 };
 
+IdleTypes.wanderSineSlow = (mob, dt) => {
+    mob.wanderT -= dt;
+
+    if (mob.wanderT <= 0) {
+        mob.wanderT = randf(mob.wanderTMin, mob.wanderTMax);
+
+        const turnAmount = randf(-Math.PI * 0.65, Math.PI * 0.65);
+        mob.wanderDir = wrapAngle((mob.wanderDir ?? mob.angle ?? 0) + turnAmount);
+    }
+
+    mob._idleWaveT = (mob._idleWaveT ?? 0) + dt;
+
+    const freqHz = mob.idleWaveFreq ?? 0.75;
+    const ampRad = mob.idleWaveAmp ?? 0.22;
+
+    const wobble = Math.sin(mob._idleWaveT * freqHz * 0.5 * Math.PI * 2) * ampRad;
+    const angle = mob.wanderDir + wobble;
+
+    setMobDesiredMove(mob, angle, mob.idleSpeed / 2);
+};
+
+IdleTypes.spin = (mob, dt) => {
+    mob.angle += .02;
+    setMobDesiredMove(mob, mob.angle, mob.idleSpeed / 10);
+};
+
 class MobState {
     constructor(type, rarityParam) {
         let rarity;
@@ -2430,7 +3384,7 @@ class MobState {
             // keep existing mob target if still valid
             if (this.targetMobId != null) {
                 const t = mobById.get(this.targetMobId);
-                if (!t || t.hp <= 0 || !isHostileFaction(this.faction, t.faction)) {
+                if (!t || t.hp <= 0 || !canDamageFaction(this.faction, t.faction)) {
                     this.targetMobId = null;
                 }
             }
@@ -2794,6 +3748,39 @@ const players = new Map(); // id -> PlayerState
 const sockets = new Map(); // ws -> playerId
 const mobs = [];
 const pickups = [];
+// -------------------- Chat --------------------
+const CHAT = {
+    maxLen: 140,
+    historyMax: 40,
+    cooldown: 0.55
+};
+
+let nextChatId = 1;
+const chatHistory = [];
+
+function cleanChatText(value) {
+    return String(value ?? "")
+        .replace(/[\r\n\t]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, CHAT.maxLen);
+}
+
+function addChatMessage(player, text) {
+    const msg = {
+        t: "chat",
+        id: nextChatId++,
+        playerId: player.id,
+        name: `Player ${player.id}`,
+        text,
+        time: Date.now()
+    };
+
+    chatHistory.push(msg);
+    while (chatHistory.length > CHAT.historyMax) chatHistory.shift();
+
+    broadcast(msg);
+}
 
 // map of active mobs by id (rebuilt every tick).  Used by centipede
 // segment code so a segment can look up its predecessor quickly.
@@ -3233,8 +4220,18 @@ function makeSnapshot() {
         id: p.id,
         x: p.x,
         y: p.y,
+        radius: p.radius,
+        lookAngle: Math.atan2(
+            Number.isFinite(p.input?.mouseY) ? p.input.mouseY - p.y : 0,
+            Number.isFinite(p.input?.mouseX) ? p.input.mouseX - p.x : 1
+        ),
         hp: p.hp,
         maxHp: p.maxHp,
+        level: p.level,
+        exp: p.exp,
+        expToNext: p.expToNext,
+        slotCount: p.slotCount,
+        bodyDmg: p.bodyDmg,
         angleBase: p.angleBase,
         petalRadius: p.petalRadius,
         petals: p.petals.map((petal, i) => {
@@ -3242,33 +4239,52 @@ function makeSnapshot() {
             const pos = p.petalSim?.[i] ?? { x: p.x, y: p.y };
             const angle = Math.atan2(pos.y - p.y, pos.x - p.x);
 
+            syncPetalMultiState(petal);
+
+            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
+            const totalMaxHp = petal.maxHp * multiAmount;
+
             return {
+                multiBodies: Array.isArray(petal.multiBodies)
+                    ? petal.multiBodies.map(body => ({
+                        x: body.x,
+                        y: body.y,
+                        index: body.index ?? 0,
+                        angle: body.angle ?? 0
+                    }))
+                    : [],
+
                 typeId: petal.typeId,
                 rarity: petal.rarity,
                 hp: petal.hp,
-                maxHp: petal.maxHp,
+                maxHp: totalMaxHp,
                 reloadLeft: petal.reloadLeft,
+                reloadTime: petal.reloadTime,
                 label: type?.label ?? petal.typeId,
                 angle,
                 spinAngle: getPetalSpinAngle(i, 0, p.time, type, petal.rarity),
 
-                multi: resolvePetalMultiCount(type, petal.rarity),
+                multi: multiAmount,
                 clumps: !!type?.clumps,
                 splitMultiDamage: !!type?.splitMultiDamage,
 
-                multiPetalRadius: getMultiPetalRadius(type, petal.rarity),
+                multiPetalRadius: getPetalRadius(type, petal.rarity),
 
-                multiPetalPos: getMultiPetalPositions(
-                    pos.x,
-                    pos.y,
-                    angle,
-                    type,
-                    petal.rarity,
-                    i,
-                    p.time, p
+                multiPetalPos: (
+                    Array.isArray(petal.multiBodies) && petal.multiBodies.length > 0
+                        ? petal.multiBodies
+                        : getMultiPetalPositions(
+                            pos.x,
+                            pos.y,
+                            angle,
+                            type,
+                            petal.rarity,
+                            i,
+                            p.time,
+                            p
+                        )
                 ).map(mp => {
                     const subIndex = mp.index ?? 0;
-                    syncPetalMultiState(petal);
 
                     return {
                         ...mp,
@@ -3280,6 +4296,10 @@ function makeSnapshot() {
                         label: type?.label ?? petal.typeId,
                         alive: (petal.multiHp[subIndex] ?? petal.maxHp) > 0,
                         reloadLeft: petal.multiReloadLeft?.[subIndex] ?? 0,
+                        reloadTime: petal.reloadTime,
+                        dropped: !!petal.dropped,
+                        dropX: petal.dropX,
+                        dropY: petal.dropY,
                     };
                 }),
 
@@ -3289,13 +4309,19 @@ function makeSnapshot() {
         secondaryPetals: p.secondaryPetals.map(petal => {
             const type = PetalTypes[petal.typeId];
 
+            syncPetalMultiState(petal);
+
+            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
+            const totalMaxHp = petal.maxHp * multiAmount;
+
             return {
                 typeId: petal.typeId,
                 label: type?.label ?? petal.typeId,
                 rarity: petal.rarity,
                 hp: petal.hp,
-                maxHp: petal.maxHp,
-                reloadLeft: petal.reloadLeft
+                maxHp: totalMaxHp,
+                reloadLeft: petal.reloadLeft,
+                reloadTime: petal.reloadTime
             };
         }),
         petalPos: p.petalSim.map(s => ({ x: s.x, y: s.y })),
@@ -3392,6 +4418,52 @@ function spawnMissile(mob, targetPlayerId) {
 
 function gridKey(cx, cy) { return (cx << 16) ^ cy; } // cheap-ish key
 function toCell(v, cellSize) { return (v / cellSize) | 0; }
+
+const PETAL_ATTRACT_CELL = 180;
+let petalAttractGrid = new Map();
+
+function buildMobGridForPetals(mobsArr, isActive, cellSize) {
+    const grid = new Map();
+
+    for (let i = 0; i < mobsArr.length; i++) {
+        if (isActive && !isActive[i]) continue;
+
+        const mob = mobsArr[i];
+        if (!mob || mob.hp <= 0) continue;
+
+        const cx = toCell(mob.x, cellSize);
+        const cy = toCell(mob.y, cellSize);
+        const key = gridKey(cx, cy);
+
+        let bucket = grid.get(key);
+        if (!bucket) grid.set(key, bucket = []);
+
+        bucket.push(mob);
+    }
+
+    return grid;
+}
+
+function forEachMobNearPetal(x, y, range, fn) {
+    const grid = petalAttractGrid;
+    if (!grid || grid.size === 0) return;
+
+    const cellSize = PETAL_ATTRACT_CELL;
+    const cx = toCell(x, cellSize);
+    const cy = toCell(y, cellSize);
+    const cr = ((range / cellSize) | 0) + 1;
+
+    for (let yy = -cr; yy <= cr; yy++) {
+        for (let xx = -cr; xx <= cr; xx++) {
+            const bucket = grid.get(gridKey(cx + xx, cy + yy));
+            if (!bucket) continue;
+
+            for (let i = 0; i < bucket.length; i++) {
+                fn(bucket[i]);
+            }
+        }
+    }
+}
 
 function buildFactionGrid(mobsArr, isActive, cellSize) {
     const grid = new Map(); // key -> array of mob refs
@@ -3490,6 +4562,25 @@ function applyEntityDamage(target, amount, source = null, opts = {}) {
 
     target.hp -= amount;
 
+    const expPlayer =
+        opts.expPlayer ??
+        (
+            source &&
+                source.id != null &&
+                players?.has?.(source.id)
+                ? source
+                : null
+        ) ??
+        (
+            source?.isPetalSummon && source.ownerPlayerId != null
+                ? players.get(source.ownerPlayerId)
+                : null
+        );
+
+    if (expPlayer && target.type !== undefined) {
+        target.lastHitPlayerId = expPlayer.id;
+    }
+
     if (target.type === "antHole") {
         handleAntHoleDamageSpawns(target, opts.neutralAggroPlayer ?? source);
     }
@@ -3570,35 +4661,56 @@ function spawnMobNearMob(typeId, rarity, sourceMob, opts = {}) {
     return mob;
 }
 
-function spawnFriendlyMobFromPetal(player, petal, slotIndex) {
+function spawnFriendlyMobFromPetal(player, petal, slotIndex, subIndex = 0, posOverride = null) {
     if (!player || !petal) return null;
 
     const petalType = PetalTypes[petal.typeId];
     if (!petalType?.deathSummonType) return null;
 
-    // One summon per egg. No beetle printer. Society survives another day.
-    if (petal.summonMobId != null) {
-        const existing = mobById.get(petal.summonMobId);
+    syncPetalMultiState(petal);
+
+    subIndex = clamp(subIndex | 0, 0, petal.multiHp.length - 1);
+
+    if (!Array.isArray(petal.summonMobIds)) {
+        petal.summonMobIds = [];
+    }
+
+    // One summon per subpetal.
+    const oldId = petal.summonMobIds[subIndex];
+
+    if (oldId != null) {
+        const existing = mobById.get(oldId);
+
         if (existing && existing.hp > 0) {
             return existing;
         }
 
-        petal.summonMobId = null;
+        petal.summonMobIds[subIndex] = null;
     }
 
     const mobType = MobTypes[petalType.deathSummonType];
     if (!mobType) return null;
 
-    const pos = player.petalSim?.[slotIndex] ?? { x: player.x, y: player.y };
+    const bodies = getPetalBodyPositions(player, slotIndex, petal, petalType);
+    const bodyPos = bodies.find(b => (b.index ?? 0) === subIndex);
+
+    const pos =
+        posOverride ??
+        bodyPos ??
+        player.petalSim?.[slotIndex] ??
+        { x: player.x, y: player.y };
 
     const rarityOffset = petalType.deathSummonRarityOffset ?? -1;
     const summonRarity = clamp(
         (petal.rarity | 0) + rarityOffset,
         0,
-        sizeScaling.length - 1
+        6
     );
 
     const mob = new MobState(mobType, summonRarity);
+
+    //reduced size scaling so that it isn't OP
+    //mob.radius = (mobType.radius ?? MOB.radius) * Math.pow(1.15, summonRarity);
 
     const spawnR = Math.max(20, mob.radius || MOB.radius);
     const a = randf(0, Math.PI * 2);
@@ -3640,11 +4752,12 @@ function spawnFriendlyMobFromPetal(player, petal, slotIndex) {
     mob.isPetalSummon = true;
     mob.ownerPlayerId = player.id;
     mob.ownerPetalSlot = slotIndex;
+    mob.ownerPetalSubIndex = subIndex;
     mob.ownerPetalTypeId = petal.typeId;
+    mob.drops = [];
 
-    // Fight mobs first, follow owner when idle.
+    // Fight mobs first, follow owner when idle. 
     mob.behavior = "summon";
-    mob.aggroType = "chase";
     mob.idleType = "followOwner";
     mob.aggroRange = Math.max(mob.aggroRange ?? 0, 650);
     mob.leashRange = Math.max(mob.leashRange ?? 0, MOB_UPDATE_RANGE);
@@ -3659,7 +4772,12 @@ function spawnFriendlyMobFromPetal(player, petal, slotIndex) {
     mobs.push(mob);
     mobById.set(mob.id, mob);
 
-    petal.summonMobId = mob.id;
+    petal.summonMobIds[subIndex] = mob.id;
+    // Compatibility for old code that expects one summon.
+    petal.summonMobId = petal.summonMobIds.find(id => {
+        const m = mobById.get(id);
+        return m && m.hp > 0;
+    }) ?? null;
 
     return mob;
 }
@@ -3856,8 +4974,24 @@ function pushDeadMob(deadIndices, index, mob) {
     if (!deadIndices.includes(index)) deadIndices.push(index);
 }
 
-function damagePetalSub(petal, subIndex, amount) {
+function damagePetalSub(petal, subIndex, amount, source = null) {
     if (!petal) return false;
+
+    const type = PetalTypes[petal.typeId];
+
+    // Bubble petals cannot be damaged by mobs/mob objects.
+    // They can still forceReload from their own pop.
+    if (
+        type?.immuneToMobDamage &&
+        source &&
+        (
+            source.type !== undefined ||
+            source.ownerMobId !== undefined ||
+            source.targetPlayerId !== undefined
+        )
+    ) {
+        return false;
+    }
 
     syncPetalMultiState(petal);
     subIndex = clamp(subIndex | 0, 0, petal.multiHp.length - 1);
@@ -3878,21 +5012,42 @@ function damagePetalSub(petal, subIndex, amount) {
 
     petal.hp = petal.multiHp.reduce((sum, hp) => sum + Math.max(0, hp || 0), 0);
 
-    // Only spawn death summon when the whole slot is dead.
-    if (petalMultiAliveCount(petal) <= 0) {
-        if (petal._deathOwner && petal._deathSlotIndex != null) {
-            spawnFriendlyMobFromPetal(petal._deathOwner, petal, petal._deathSlotIndex);
-        }
+    // Spawn one summon when THIS subpetal dies.
+    // So antEgg multi 4 = 4 ants, multi 5 = 5 ants.
+    // Revolutionary concept: four eggs make four ants.
+    if (
+        type?.deathSummonType &&
+        petal.multiHp[subIndex] <= 0 &&
+        petal._deathOwner &&
+        petal._deathSlotIndex != null
+    ) {
+        const body = Array.isArray(petal.multiBodies)
+            ? petal.multiBodies.find(b => (b.index ?? 0) === subIndex)
+            : null;
+
+        spawnFriendlyMobFromPetal(
+            petal._deathOwner,
+            petal,
+            petal._deathSlotIndex,
+            subIndex,
+            body ? { x: body.x, y: body.y } : null
+        );
     }
 
     return true;
 }
 
-function explodeLandmine(player, petal, deadIndices) {
+function explodeLandmine(player, petal, deadIndices, subIndex = 0, ex = petal.dropX, ey = petal.dropY) {
     const type = PetalTypes[petal.typeId];
 
     if (!type?.isDroppable || petal.typeId !== "landmine") return false;
-    if (!petal.dropped || petal.reloadLeft > 0) return false;
+    if (!petal.dropped) return false;
+
+    syncPetalMultiState(petal);
+    subIndex = clamp(subIndex | 0, 0, petal.multiHp.length - 1);
+
+    if ((petal.multiHp[subIndex] ?? 0) <= 0) return false;
+    if ((petal.multiReloadLeft[subIndex] ?? 0) > 0) return false;
 
     const r =
         (type.explosionRadiusBase ?? 500) *
@@ -3906,12 +5061,13 @@ function explodeLandmine(player, petal, deadIndices) {
         const mob = mobsArr[mi];
 
         if (!canTakeDamage(mob)) continue;
-        if (dist2(petal.dropX, petal.dropY, mob.x, mob.y) > r2) continue;
+        if (dist2(ex, ey, mob.x, mob.y) > r2) continue;
 
         const didDamage = applyEntityDamage(mob, dmg, petal, {
             targetCdProp: "hitCd",
             targetCd: 0.12,
-            neutralAggroPlayer: player
+            neutralAggroPlayer: player,
+            expPlayer: player
         });
 
         if (didDamage) {
@@ -3922,13 +5078,9 @@ function explodeLandmine(player, petal, deadIndices) {
     // Damage players too, but not godmode players.
     for (const p of playersArr) {
         if (!canTakeDamage(p) || p.godMode) continue;
-        if (p === player) {
-            // Remove this if you WANT the owner to be hit too.
-            // Since you said landmine should damage players as a downside,
-            // this line decides whether it damages only other players or everyone.
-        }
 
-        if (dist2(petal.dropX, petal.dropY, p.x, p.y) > r2) continue;
+        // Owner can also be hit. Landmines having consequences, tragic.
+        if (dist2(ex, ey, p.x, p.y) > r2) continue;
 
         applyEntityDamage(p, dmg, petal, {
             targetCdProp: "hitCd",
@@ -3936,13 +5088,30 @@ function explodeLandmine(player, petal, deadIndices) {
         });
     }
 
-    petal.forceReload();
+    petal.forceReloadSub(subIndex);
+
+    if (Array.isArray(petal.multiBodies)) {
+        petal.multiBodies = petal.multiBodies.filter(body => {
+            return (body.index ?? 0) !== subIndex;
+        });
+    }
+
+    if (petalMultiAliveCount(petal) <= 0) {
+        petal.dropped = false;
+        petal.dropX = 0;
+        petal.dropY = 0;
+        petal.multiBodies = [];
+    } else if (Array.isArray(petal.multiBodies) && petal.multiBodies.length > 0) {
+        petal.dropX = petal.multiBodies[0].x;
+        petal.dropY = petal.multiBodies[0].y;
+    }
+
     return true;
 }
 
-function handlePetalEntityContact(player, slotIndex, petal, target, targetRadius, deadIndices, targetMobIndex = null, hitX = null, hitY = null) {
+function handlePetalEntityContact(player, slotIndex, petal, target, targetRadius, deadIndices, targetMobIndex = null, hitX = null, hitY = null, cachedPetal = null) {
     if (!petal || petal.disabledByStack || !petal.isAlive() || !canTakeDamage(target)) return false;
-    if (isPetalSlotStackDisabled(player, slotIndex)) return false;
+    if (player.isSlotStackDisabledFast?.(slotIndex) ?? isPetalSlotStackDisabled(player, slotIndex)) return false;
 
     if (
         target &&
@@ -3959,26 +5128,13 @@ function handlePetalEntityContact(player, slotIndex, petal, target, targetRadius
     petal._deathOwner = player;
     petal._deathSlotIndex = slotIndex;
 
-    const petalAngle = Math.atan2(pos.y - player.y, pos.x - player.x) || 0;
+    const multiPositions = cachedPetal?.bodies ?? getPetalBodyPositions(player, slotIndex, petal, petalType);
 
-    const multiPositions = getMultiPetalPositions(
-        pos.x,
-        pos.y,
-        petalAngle,
-        petalType,
-        petal.rarity,
-        slotIndex,
-        player.time,
-        player
-    );
-
-    const multiRadius = getMultiPetalRadius(petalType, petal.rarity);
+    const multiRadius = cachedPetal?.radius ?? getPetalRadius(petalType, petal.rarity);
     const multiDamage = getPetalMultiDamage(petal, petalType);
 
     for (const mp of multiPositions) {
         const subIndex = mp.index ?? 0;
-
-        syncPetalMultiState(petal);
 
         if ((petal.multiHp[subIndex] ?? 0) <= 0) continue;
         if ((petal.multiHitCd[subIndex] ?? 0) > 0) continue;
@@ -4005,18 +5161,23 @@ function handlePetalEntityContact(player, slotIndex, petal, target, targetRadius
         }
 
         if (petal.typeId === "landmine" && petal.dropped) {
-            return explodeLandmine(player, petal, deadIndices);
+            return explodeLandmine(player, petal, deadIndices, subIndex, mp.x, mp.y);
         }
 
-        const didDamage = applyEntityDamage(target, multiDamage, petal, {
-            neutralAggroPlayer: player
-        });
+        let didDamage = false;
 
-        if (!didDamage) continue;
+        if (multiDamage > 0) {
+            didDamage = applyEntityDamage(target, multiDamage, petal, {
+                neutralAggroPlayer: player,
+                expPlayer: player
+            });
+
+            if (!didDamage) continue;
+        }
 
         petal.multiHitCd[subIndex] = 0.12;
 
-        if (petal.typeId === "pincer" && target.type !== undefined) {
+        if (petal.typeId === "pincer" && target.type !== undefined && didDamage) {
             const type = PetalTypes[petal.typeId];
             const { slowAmount, slowDuration } = getPincerSlowStats(petal, type);
 
@@ -4093,11 +5254,13 @@ function tick() {
     }
 
     const factionGrid = buildFactionGrid(mbArr, isActive, FACTION_CELL);
+    petalAttractGrid = buildMobGridForPetals(mbArr, isActive, PETAL_ATTRACT_CELL);
 
     updateLovebugMating(DT);
 
     for (const p of plArr) {
         p.update(DT);
+        p._petalCollisionCache = buildPlayerPetalCollisionCache(p);
     }
 
     const deadIndices = [];
@@ -4206,20 +5369,61 @@ function tick() {
 
                 const parts = getMobHitParts(mob);
 
-                let closestD2 = Infinity;
+                let couldTouchPetal = false;
+
+                // Normal orbiting-petal broad phase:
+                // mob near the player/orbit area.
+                let closestD2ToPlayer = Infinity;
+
                 for (const part of parts) {
                     const d2 = dist2(part.x, part.y, player.x, player.y);
-                    if (d2 < closestD2) closestD2 = d2;
+                    if (d2 < closestD2ToPlayer) closestD2ToPlayer = d2;
                 }
 
-                const approxR =
+                const normalApproxR =
                     player.petalRadius +
                     getPlayerMaxPetalReach(player) +
                     (mob.radius || MOB.radius) +
                     PETAL_WOBBLE.ampMax +
                     64;
 
-                if (closestD2 > approxR * approxR) continue;
+                if (closestD2ToPlayer <= normalApproxR * normalApproxR) {
+                    couldTouchPetal = true;
+                }
+
+                // Dropped-petal broad phase:
+                // dropped landmines are not near the player anymore, because that is literally
+                // what "dropped" means. Software, please try to keep up.
+                if (!couldTouchPetal) {
+                    for (let i = 0; i < player.petals.length && !couldTouchPetal; i++) {
+                        const petal = player.petals[i];
+                        if (!petal || !petal.dropped) continue;
+
+                        const petalType = PetalTypes[petal.typeId];
+                        if (!petalType) continue;
+
+                        const cached = player._petalCollisionCache?.[i];
+                        if (!cached) continue;
+
+                        const bodies = cached.bodies;
+                        const pr = cached.radius;
+
+                        for (const body of bodies) {
+                            for (const part of parts) {
+                                const mr = part.radius || mob.radius || MOB.radius;
+
+                                if (circlesTouch(body.x, body.y, pr, part.x, part.y, mr)) {
+                                    couldTouchPetal = true;
+                                    break;
+                                }
+                            }
+
+                            if (couldTouchPetal) break;
+                        }
+                    }
+                }
+
+                if (!couldTouchPetal) continue;
 
                 let hit = false;
 
@@ -4231,11 +5435,12 @@ function tick() {
                                 i,
                                 player.petals[i],
                                 mob,
-                                part.radius,
+                                part.radius || mob.radius || MOB.radius,
                                 deadIndices,
                                 mi,
                                 part.x,
-                                part.y
+                                part.y,
+                                player._petalCollisionCache?.[i]
                             )
                         ) {
                             hit = true;
@@ -4252,24 +5457,48 @@ function tick() {
 
                     const pr = PLAYER.radius;
                     const canDamagePlayer = canDamageFaction(mob.faction, player.faction);
+                    const canDamageMob = canDamageFaction(player.faction, mob.faction);
 
                     for (const part of getMobHitParts(mob)) {
                         const mr = part.radius || MOB.radius;
+
+                        const touchingPlayer = circlesTouch(
+                            part.x,
+                            part.y,
+                            mr,
+                            player.x,
+                            player.y,
+                            pr
+                        );
 
                         // Only push from the head. Body pushing gets annoying fast.
                         if (part.isHead) {
                             resolveCircleOverlap(mob, player, mr, pr);
                         }
 
-                        if (
-                            canDamagePlayer &&
-                            circlesTouch(part.x, part.y, mr, player.x, player.y, pr) &&
-                            mob.attackCd <= 0
-                        ) {
+                        if (!touchingPlayer) continue;
+
+                        // Mob damages player.
+                        if (canDamagePlayer && mob.attackCd <= 0) {
                             applyEntityDamage(player, mob.dmg, mob);
                             mob.attackCd = 0.5;
-                            break;
                         }
+
+                        // Player body damages mob and aggros it.
+                        if (canDamageMob && mob.hitCd <= 0) {
+                            const didDamageMob = applyEntityDamage(mob, player.bodyDmg ?? PLAYER.bodyDmg, player, {
+                                targetCdProp: "hitCd",
+                                targetCd: 0.12,
+                                neutralAggroPlayer: player,
+                                expPlayer: player
+                            });
+
+                            if (didDamageMob) {
+                                pushDeadMob(deadIndices, mi, mob);
+                            }
+                        }
+
+                        break;
                     }
                 }
             }
@@ -4307,7 +5536,7 @@ function tick() {
 
                 const m = mbArr[mi];
                 if (!m || m.hp <= 0) continue;
-                if (!isHostileFaction(o.faction, m.faction)) continue;
+                if (!canDamageFaction(o.faction, m.faction)) continue;
 
                 if (circlesTouch(o.x, o.y, o.radius, m.x, m.y, m.radius || MOB.radius)) {
                     if (
@@ -4354,7 +5583,11 @@ function tick() {
                         player.petals[i],
                         o,
                         o.radius,
-                        deadIndices
+                        deadIndices,
+                        null,
+                        null,
+                        null,
+                        player._petalCollisionCache?.[i]
                     )
                 ) {
                     break;
@@ -4376,6 +5609,16 @@ function tick() {
     for (const idx of uniqueDeadIndices) {
         const mob = mobs[idx];
         if (!mob) continue;
+
+        if (!mob._expAwarded && mob.lastHitPlayerId != null && !mob.isPetalSummon) {
+            const killer = players.get(mob.lastHitPlayerId);
+
+            if (killer && killer.hp > 0) {
+                const expGained = getMobKillExp(mob);
+                killer.addExp(expGained);
+                mob._expAwarded = true;
+            }
+        }
 
         handleMobDeathSpawn(mob);
 
@@ -4425,8 +5668,23 @@ function tick() {
             const owner = players.get(mob.ownerPlayerId);
             const petal = owner?.petals?.[mob.ownerPetalSlot];
 
-            if (petal && petal.summonMobId === mob.id) {
-                petal.summonMobId = null;
+            if (petal) {
+                if (petal.summonMobId === mob.id) {
+                    petal.summonMobId = null;
+                }
+
+                if (Array.isArray(petal.summonMobIds)) {
+                    for (let i = 0; i < petal.summonMobIds.length; i++) {
+                        if (petal.summonMobIds[i] === mob.id) {
+                            petal.summonMobIds[i] = null;
+                        }
+                    }
+
+                    petal.summonMobId = petal.summonMobIds.find(id => {
+                        const m = mobById.get(id);
+                        return m && m.hp > 0;
+                    }) ?? null;
+                }
             }
         }
 
@@ -4438,6 +5696,8 @@ function tick() {
 
     for (const p of plArr) {
         if (p.hp <= 0) {
+            killPlayerSummons(p);
+
             p.hp = p.maxHp;
 
             const sp2 = getRandomSpawnPoint();
@@ -4517,6 +5777,11 @@ wss.on("connection", (ws) => {
     }
     ws.send(JSON.stringify(hello));
 
+    ws.send(JSON.stringify({
+        t: "chat_history",
+        messages: chatHistory
+    }));
+
     ws.on("message", (buf) => {
         let msg;
         try {
@@ -4528,6 +5793,26 @@ wss.on("connection", (ws) => {
         const pid = sockets.get(ws);
         const p = pid ? players.get(pid) : null;
         if (!p) return;
+
+        if (msg.t === "chat_send") {
+            const now = Date.now();
+
+            if (!Number.isFinite(p.lastChatAt)) {
+                p.lastChatAt = 0;
+            }
+
+            if (now - p.lastChatAt < CHAT.cooldown * 1000) {
+                return;
+            }
+
+            const text = cleanChatText(msg.text);
+
+            if (!text) return;
+
+            p.lastChatAt = now;
+            addChatMessage(p, text);
+            return;
+        }
 
         if (msg.t === "input") {
             p.input.up = !!msg.up;
@@ -4557,6 +5842,16 @@ wss.on("connection", (ws) => {
 
         if (msg.t === "godMode") {
             p.godMode = !!msg.enabled;
+            return;
+        }
+
+        if (msg.t === "dev_set_level") {
+            p.setLevel(msg.level);
+            return;
+        }
+
+        if (msg.t === "dev_add_levels") {
+            p.addLevels(msg.amount ?? 1);
             return;
         }
 
