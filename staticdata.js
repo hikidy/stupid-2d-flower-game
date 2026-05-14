@@ -27,21 +27,41 @@ const PETAL_RARITY_SCALE = [
 const PetalTypes = {
     basic: { id: "basic", label: "Basic", dmg: 10, maxHp: 10, reload: 2.0 },
     rose: { id: "rose", label: "Rose", dmg: 5, maxHp: 10, reload: 2.0, heal: 5, healCooldown: 0.5, radius: .75 },
-    leaf: { id: "leaf", label: "Leaf", dmg: 16, maxHp: 13, reload: 1.8, hps: 2, radius: 1.15  },
+    leaf: { id: "leaf", label: "Leaf", dmg: 16, maxHp: 13, reload: 1.8, hps: 2, radius: 1.15 },
+    maple: { id: "maple", label: "Maple", dmg: 16, maxHp: 13, reload: 1.8, hps: 2, radius: 1.15, playerSpeed: 0.75, buffReload: 5, radius: 1.2 },
     rock: { id: "rock", label: "Rock", dmg: 5, maxHp: 15, reload: 3.0, radius: 1.1 },
     rice: { id: "rice", label: "Rice", dmg: 5, maxHp: 1, reload: 0.000001, radius: .55, },
     stinger: { id: "stinger", label: "Stinger", dmg: 100, maxHp: 5, reload: 5, radius: .55, multi: [1, 1, 1, 1, 1, 3, 5, 5, 6], clumps: true, splitMultiDamage: true, },
     poo: { id: "poo", label: "Poo", dmg: 1, maxHp: 8, reload: 4.0, aggroRangeMult: 0.10 },
     lentil: { id: "lentil", label: "Lentil", dmg: 12, maxHp: 15, reload: 4.0, petalAttractBonus: 0.007, radius: .45 },
+    faster: {
+        id: "faster",
+        label: "Faster",
+        dmg: 8,
+        maxHp: 10,
+        reload: 2.0,
+
+        // Adds to petal orbit speed while alive.
+        // R0 = +25%, R1 = +30%, R2 = +35%, etc.
+        petalSpeedBonus: 0.25,
+        petalSpeedBonusPerRarity: 0.05,
+
+        radius: 0.75,
+        spinSpeed: 3.5
+    },
     landmine: {
         id: "landmine",
         label: "Landmine",
         dmg: 100,
         maxHp: 10,
-        reload: 5.0,
+        reload: 2.5,
         isDroppable: true,
         explosionRadiusBase: 500,
-        explosionRadiusScale: 1.2, radius: 1.15
+        explosionRadiusScale: 1.2, radius: 1.15,
+        multi: [1, 1, 2, 2, 3, 3, 4, 4, 5],
+        clumps: true,
+        splitMultiDamage: true,
+        radius: 1.75,
     },
     light: {
         id: "light",
@@ -52,7 +72,19 @@ const PetalTypes = {
         multi: [1, 1, 2, 2, 3, 3, 4, 4, 5],
         clumps: false,
         splitMultiDamage: true,
-        sizeRatio: 0.75,
+        radius: 0.75,
+    },
+    pollen: {
+        id: "pollen",
+        label: "Pollen",
+        dmg: 38,
+        maxHp: 8,
+        reload: 0.75,
+        isDroppable: true,
+        multi: [1, 1, 2, 3, 3, 3, 3, 3, 5],
+        clumps: false,
+        splitMultiDamage: true,
+        radius: 0.75,
     },
     yinYang: {
         id: "yinYang",
@@ -72,12 +104,23 @@ const PetalTypes = {
         slowDuration: 2.0,
         slowDurationPerRarity: 0.35
     },
+    sap: {
+        id: "sap",
+        label: "Sap",
+        dmg: 5,
+        maxHp: 5,
+        reload: 1.5,
+        slowAmount: 0.3,
+        slowDuration: 1.75,
+        slowDurationPerRarity: 0.25
+    },
     sawblade: {
         id: "sawblade",
         label: "Sawblade",
         dmg: 40,
         maxHp: 25,
-        reload: 2.0
+        reload: 2.0,
+        radius: 2,
     },
     beetleEgg: {
         id: "beetleEgg",
@@ -92,21 +135,62 @@ const PetalTypes = {
     },
     antEgg: {
         id: "antEgg",
-        label: "Ant Egg",
+        label: "Eggs",
         dmg: 1,
         maxHp: Number.MIN_VALUE,
         reload: 1.0,
+        multi: [4, 4, 4, 4, 4, 4, 4, 4, 4],
+        clumps: false,
+        splitMultiDamage: true,
         deathSummonType: "antGuard",
         deathSummonRarityOffset: -1,
         deathSummonFaction: "owner",
         deathSummonBehavior: "hostile"
+    },
+    bubble: {
+        id: "bubble",
+        label: "Bubble",
+        dmg: 0,
+        maxHp: 1,
+        reload: 1,
+
+        // R0 = 3s, R1 = 1.5s, R2 = 0.75s, etc.
+        reloadScaling: [2, 1.75, 1.5, 1.25, 1, 0.75, 0.5, 0.25, 0],
+        secondaryReload: [0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.1, 0.1],
+
+        // Do not multiply HP by rarity scaling.
+        fixedMaxHp: true,
+
+        // Mobs cannot damage it. Used to be true, but that just made it op.
+        immuneToMobDamage: false,
+
+        // Right click pop movement.
+        rightClickPop: true,
+        popImpulse: 460,
+        popImpulsePerRarity: 15,
+
+        radius: 1.1
+    },
+    cactus: {
+        id: "cactus",
+        label: "Cactus",
+        dmg: 10,
+        maxHp: 10,
+        reload: 2.5,
+        radius: 1.0,
+
+        // Applies while equipped, even if reloading/dead.
+        maxHpBonus: 30,
+        maxHpBonusPerRarity: 25
     },
     god: {
         id: "god",
         label: "God",
         dmg: 10000000000000,
         maxHp: 10000000000000,
-        reload: 0.05
+        reload: 0.05,
+        maxHpBonus: 1000,
+        playerSpeed: 5,
     }
 };
 
@@ -161,7 +245,7 @@ const MobTypes = {
         radius: 10,
         dmg: 10,
         maxHp: 50,
-        speed: 221,
+        speed: 220,
         behavior: "neutral",
         aggroType: "chase",
         idleType: "wander",
@@ -174,7 +258,8 @@ const MobTypes = {
         radius: 10,
         dmg: 10,
         maxHp: 50,
-        speed: 221,
+        speed: 220,
+        aggroRange: 225,
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wander",
@@ -200,7 +285,7 @@ const MobTypes = {
         radius: 10,
         dmg: 5,
         maxHp: 25,
-        speed: 221,
+        speed: 220,
         behavior: "passive",
         aggroType: "chase",
         idleType: "wander",
@@ -213,7 +298,7 @@ const MobTypes = {
         radius: 15,
         dmg: 10,
         maxHp: 50,
-        speed: 221,
+        speed: 220,
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wander",
@@ -277,7 +362,7 @@ const MobTypes = {
         behavior: "passive",
         aggroType: "none",
         idleType: "wander",
-        drops: ["rose"],
+        drops: ["bubble"],
         mass: 10,
         sizeVary: true,
     },
@@ -314,7 +399,7 @@ const MobTypes = {
         radius: 35,
         dmg: 25,
         maxHp: 125,
-        speed: 221,
+        speed: 220,
         behavior: "passive",
         aggroType: "chase",
         idleType: "wanderSine",
@@ -332,7 +417,7 @@ const MobTypes = {
         behavior: "passive",
         aggroType: "none",
         idleType: "none",
-        drops: ["rose"],
+        drops: ["rose", "cactus"],
         mass: 1,
         sizeVary: true,
     },
@@ -400,12 +485,25 @@ const MobTypes = {
         radius: 18,
         dmg: 10,
         maxHp: 25,
-        speed: 221,
+        speed: 220,
         behavior: "neutral",
         aggroType: "chase",
         idleType: "wander",
         mass: 0.5,
         drops: ["light", "rose", "yinYang"]
+    },
+    aphid: {
+        id: "aphid",
+        label: "Aphid",
+        radius: 10,
+        dmg: 20,
+        maxHp: 70,
+        speed: 220,
+        behavior: "neutral",
+        aggroType: "shootMissile",
+        idleType: "wander",
+        mass: 0.5,
+        drops: ["sap"]
     },
     crab: {
         id: "crab",
@@ -413,7 +511,7 @@ const MobTypes = {
         radius: 18,
         dmg: 25,
         maxHp: 55,
-        speed: 221,
+        speed: 220,
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wanderSine",
@@ -440,7 +538,7 @@ const MobTypes = {
         radius: 18,
         dmg: 10,
         maxHp: 30,
-        speed: 221,
+        speed: 220,
         behavior: "neutral",
         aggroType: "chase",
         idleType: "wander",
@@ -508,10 +606,10 @@ const MobTypes = {
         radius: 25,
         dmg: 25,
         maxHp: 150,
-        speed: 200,
+        speed: 50,
         behavior: "hostile",
         aggroType: "chase",
-        idleType: "wanderSine",
+        idleType: "wanderSineSlow",
         aggroRange: 300,
         drops: ["rice", "rose", "landmine"],
         mass: 0.15,
@@ -588,8 +686,8 @@ const MobTypes = {
         speed: 250,
         behavior: "neutral",
         aggroType: "chaseSine",
-        idleType: "wanderSine",
-        drops: ["stinger"],
+        idleType: "wanderSineSlow",
+        drops: ["stinger", "pollen"],
         mass: 0.35,
     },
     beeEgg: {
@@ -624,12 +722,12 @@ const MobTypes = {
         radius: 15,
         dmg: 20,
         maxHp: 55,
-        speed: 221,
+        speed: 220,
         behavior: "hostile",
         aggroType: "shootMissilePredictive",
         idleType: "wanderSine",
         aggroRange: 250,
-        drops: ["rice", "rose"],
+        drops: ["pollen"],
         mass: 0.5,
     },
     scorpion: {
@@ -642,6 +740,20 @@ const MobTypes = {
         behavior: "hostile",
         aggroType: "chaseRapidClose",
         idleType: "wanderSine",
+        aggroRange: 250,
+        mass: 0.5,
+        drops: ["rice", "rose", "pincer"]
+    },
+    starfish: {
+        id: "starfish",
+        label: "Starfish",
+        radius: 20.75,
+        dmg: 20,
+        maxHp: 50,
+        speed: 220,
+        behavior: "hostile",
+        aggroType: "chase",
+        idleType: "spin",
         aggroRange: 250,
         mass: 0.5,
         drops: ["rice", "rose", "pincer"]
@@ -700,7 +812,7 @@ const MobTypes = {
         idleType: "wanderSine",
         aggroRange: 250,
         mass: 0.05,
-        drops: ["rice", "rose"]
+        drops: ["faster"]
     },
     spider: {
         id: "spider",
@@ -708,13 +820,13 @@ const MobTypes = {
         radius: 10,
         dmg: 15,
         maxHp: 35,
-        speed: 221,
+        speed: 220,
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wander",
         aggroRange: 250,
         mass: 0.05,
-        drops: ["rice", "rose"]
+        drops: ["faster"]
     },
     clam: {
         id: "clam",
