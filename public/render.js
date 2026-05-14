@@ -96,15 +96,27 @@
     }
 
     const FLASH_RED = "#ff0000";
-    let _flashA = 0; // current mob's flash alpha (0..1)
+    const DEATH_WHITE = "#ffffff";
 
-    // flash a hex color toward red
+    let _flashA = 0; // damage flash, 0..1
+    let _deathA = 0; // death fade color, 0..1
+
     function F(hex) {
-        if (_flashA <= 0) return hex;
-        return blendHex(hex, FLASH_RED, _flashA);
+        let out = hex;
+
+        // damage flash
+        if (_flashA > 0) {
+            out = blendHex(out, FLASH_RED, _flashA);
+        }
+
+        // death animation color fade
+        if (_deathA > 0) {
+            out = blendHex(blendHex(out, DEATH_WHITE, _deathA), FLASH_RED, 1);
+        }
+
+        return out;
     }
 
-    // do your existing blend, then flash the result toward red
     function FB(a, b, p) {
         return F(blendHex(a, b, p));
     }
@@ -204,7 +216,7 @@
         sand: "#E1C85D",
         jelly: "#D5B5D3",
         orange: "#F1BC48",
-        starfish: "#AA403F",
+        starfish: "#d14f4d",
         book: "#c28043",
         bookSpine: "#c28043",
         shrubGreen: "#0b7240",
@@ -247,6 +259,101 @@
 
     const FLASH_DURATION = 0.12;      // seconds
     const FLASH_STRENGTH = 0.85;      // 0..1 alpha cap
+
+    function drawPlayerFlower(ctx, x, y, r, p) {
+        const isSelf = !!p?.isSelf;
+
+        // Only YOUR flower flashes when damaged.
+        const damageFlash =
+            isSelf
+                ? computeDamageFlash(`player:${p?.id ?? "self"}`, p?.hp)
+                : 0;
+
+        const isDamaged = damageFlash > 0.01;
+        const isModeFrown = isSelf && (p?.offensiveMode || p?.defensiveMode);
+
+        withTransform(ctx, x, y, r, () => {
+            // body
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            const bodyColor = F(colors.playerYellow);
+            const bodyStroke = FB(colors.playerYellow, "#000000", 0.15);
+
+            ctx.lineWidth = 0.14;
+            ctx.strokeStyle = bodyStroke;
+            ctx.fillStyle = bodyColor;
+
+            ctx.beginPath();
+            ctx.arc(0, 0, 1, 0, TAU);
+            ctx.fill();
+            ctx.stroke();
+
+            // mouth
+            ctx.lineCap = "butt";
+            ctx.lineJoin = "miter";
+            ctx.lineWidth = 0.07;
+            ctx.strokeStyle = F(colors.darkGray);
+            ctx.fillStyle = F(colors.darkGray);
+
+            ctx.beginPath();
+
+            if (isModeFrown || isDamaged) {
+                // frown
+                ctx.moveTo(-0.25, 0.52);
+                ctx.quadraticCurveTo(0, 0.38, 0.25, 0.52);
+            } else {
+                // smile
+                ctx.moveTo(-0.25, 0.48);
+                ctx.quadraticCurveTo(0, 0.68, 0.25, 0.48);
+            }
+
+            ctx.stroke();
+
+            // eyes
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            const lookAngle = Number.isFinite(p?.lookAngle) ? p.lookAngle : 0;
+            const lookX = Math.cos(lookAngle);
+            const lookY = Math.sin(lookAngle);
+
+            const pupilMove = 0.055;
+
+            function drawEye(ex, ey) {
+                ctx.save();
+
+                ctx.strokeStyle = F(colors.darkGray);
+                ctx.fillStyle = F(colors.darkGray);
+
+                ctx.beginPath();
+                ctx.ellipse(ex, ey, 0.125, 0.25, 0, 0, TAU);
+                ctx.stroke();
+                ctx.fill();
+                ctx.clip();
+
+                ctx.fillStyle = F(colors.white);
+                ctx.beginPath();
+                ctx.arc(
+                    ex + lookX * pupilMove,
+                    ey + lookY * pupilMove,
+                    0.12,
+                    0,
+                    TAU
+                );
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            drawEye(-0.315, -0.2);
+            drawEye(0.315, -0.2);
+
+            if (isModeFrown) {
+                ctx.fillStyle = F(colors.playerYellow);
+            }
+        });
+    }
 
     function drawBabyAnt(ctx, x, y, r, t) {
         const s = r;
@@ -364,6 +471,87 @@
             ctx.restore();
         });
     }
+
+    function drawGuardAnt(ctx, x, y, r, t, faction) {
+        const s = r;
+        const anim = Math.sin(t * 8) * 0.05;
+        const wing = Math.sin(t * 12) * 0.077;
+        const color =
+            faction === 1 || faction === "PLAYER" || faction === "player"
+                ? colors.playerYellow
+                : colors.antGray;
+
+        withTransform(ctx, x, y, s, () => {
+            ctx.lineWidth = 0.375;
+
+            ctx.strokeStyle = F(colors.darkGray);
+            ctx.beginPath();
+            ctx.moveTo(0.4, 0.55);
+            ctx.lineTo(1.75, 0.25 + anim);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0.4, -0.55);
+            ctx.lineTo(1.75, -0.25 - anim);
+            ctx.stroke();
+
+            ctx.strokeStyle = FB(color, "#000000", 0.15);
+            ctx.fillStyle = F(color);
+
+            ctx.beginPath();
+            ctx.arc(-0.45, 0, 0.57, 0, TAU);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = F("#9999ff");
+            ctx.globalAlpha = 0.6;
+            ctx.save();
+            ctx.rotate(wing - 0.2);
+            ctx.translate(0, 0.3);
+
+            ctx.beginPath();
+            ctx.ellipse(-0.92 / 2, 0, 0.92, 0.4125, 0, 0, TAU);
+            ctx.fill();
+            ctx.restore();
+
+            ctx.save();
+            ctx.rotate(-wing + 0.2);
+            ctx.translate(0, -0.3);
+            ctx.beginPath();
+            ctx.ellipse(-0.92 / 2, 0, 0.92, 0.4125, 0, 0, TAU);
+            ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = F(color);
+            ctx.globalAlpha = 1;
+            ctx.beginPath();
+            ctx.arc(0.5, 0, 0.8, 0, TAU);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.save();
+            ctx.scale(0.7, 0.7);
+            ctx.translate(0.5, 0);
+
+            ctx.fillStyle = F(colors.darkGray);
+            ctx.strokeStyle = F(colors.darkGray);
+            ctx.beginPath();
+            ctx.moveTo(0.4, 0.55);
+            ctx.lineTo(2, 1.3);
+            ctx.quadraticCurveTo(1.1, 0.3, 0.4, 0.55);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0.4, -0.55);
+            ctx.lineTo(2, -1.3);
+            ctx.quadraticCurveTo(1.1, -0.3, 0.4, -0.55);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+        });
+    }
+
     function drawDandysWorld(ctx, x, y, r) {
         const s = r;
         withTransform(ctx, x, y, s, () => {
@@ -2563,6 +2751,59 @@
         });
     }
 
+    function drawAphid(ctx, x, y, r, t) {
+        withTransform(ctx, x, y, r, () => {
+            ctx.lineWidth = 0.29;
+
+            ctx.lineCap = "round";
+            ctx.strokeStyle = F(colors.darkGray);
+
+            let swingyNgpoA = 5.92 * Math.sin(Math.sin(t * 7));
+            let swingyNgpoB = 5.92 * Math.sin(Math.sin(t * 7 + 2));
+            let swingyNgpoC = 5.92 * Math.sin(Math.sin(t * 7 + 4));
+            let swingyNgpoD = 5.92 * Math.sin(Math.sin(t * 7 + 6));
+
+            const legX = 58 * 0.02;
+            const legY = 38 * 0.02;
+            const legCurveX = 28 * 0.02;
+            const legEndX = 5 * 0.02;
+
+            function drawLeg(sideX, sideY, swing) {
+                ctx.save();
+                ctx.rotate((Math.PI / 180) * (swing * 1.2 - 5));
+
+                ctx.beginPath();
+                ctx.moveTo(sideX * legX, sideY * legY);
+                ctx.quadraticCurveTo(sideX * legCurveX, 0, -sideX * legEndX, 0);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            drawLeg(.57, 1.3, swingyNgpoA);
+            drawLeg(.57, -1.3, swingyNgpoA);
+            drawLeg(-.57, 1.3, swingyNgpoD);
+            drawLeg(-.57, -1.3, swingyNgpoD);
+
+            ctx.save();
+            ctx.rotate(0.1 * Math.sin(Math.sin(t * 7)));
+            ctx.beginPath();
+            ctx.moveTo(0, 1.1);
+            ctx.lineTo(0, -1.1);
+            ctx.stroke();
+            ctx.restore();
+
+            // Body
+            ctx.strokeStyle = FB(colors.honeyGold, "#000000", 0.15);
+            ctx.fillStyle = F(colors.honeyGold);
+
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 0.884, 0.78, 0, 0, TAU);
+            ctx.fill();
+            ctx.stroke();
+        });
+    }
+
     function drawMosquito(ctx, x, y, r, t) {
         const s = r;
         const wing = Math.sin(t * 12) * 0.077;
@@ -2851,18 +3092,18 @@
             ctx.fill();
 
             //tentacles
-            ctx.lineWidth = 0.25;
+            ctx.lineWidth = 0.15;
             ctx.globalAlpha = 0.95;
             ctx.strokeStyle = F(colors.jellyfish);
             for (let i = 0; i < 8; i++) {
                 const angle = (TAU / 8) * i;
-                const wiggle = Math.sin(t * 7 + i) * 0.05;
+                const wiggle = Math.sin(t + i) * 0.35;
                 ctx.save();
                 ctx.rotate(angle);
 
                 ctx.beginPath();
                 ctx.moveTo(0.7, 0);
-                ctx.quadraticCurveTo(1.5, 0, 1.5, wiggle);
+                ctx.quadraticCurveTo(1, 0, 1.5, wiggle);
                 ctx.stroke();
 
                 ctx.restore();
@@ -2984,6 +3225,173 @@
         ctx.restore();
     }
 
+    function drawStarfish(ctx, x, y, r, t, hpPercent) {
+        withTransform(ctx, x, y, r, () => {
+            ctx.save();
+
+            const base = colors.starfish;
+
+            const fill = F(base);
+            const outline = FB(base, "#000000", 0.15);
+            const spot = FB(base, "#ffffff", 0.28);
+
+            const totalArms = 5;
+            const stepRad = TAU / totalArms;
+
+            const longRadius = 1.0;
+            const shortRadius = 0.3;
+
+            const longCurveHeight = 0.7;
+            const shortCurveHeight = 0.05;
+
+            hpPercent = Math.max(0, Math.min(1, hpPercent));
+
+            const blendRange = 0.05;
+
+            /*
+                Arm indexes:
+                0 = arm 1
+                1 = arm 2
+                2 = arm 3
+                3 = arm 4
+                4 = arm 5
+    
+                Fully long at:
+                100%: 1, 2, 3, 4, 5
+                 80%: 1, 2, 3, 4
+                 60%: 1, 3, 4
+                 40%: 1, 4
+                 20%: 4
+    
+                Arms shrink in this order:
+                arm 5 at 80%
+                arm 2 at 60%
+                arm 3 at 40%
+                arm 1 at 20%
+            */
+
+            function clamp01(v) {
+                return Math.max(0, Math.min(1, v));
+            }
+
+            function smoothstep(v) {
+                v = clamp01(v);
+                return v * v * (3 - 2 * v);
+            }
+
+            function armKeepAmount(threshold) {
+                /*
+                    At threshold + blendRange: fully long
+                    At threshold - blendRange: fully short
+                */
+                const raw = (hpPercent - (threshold - blendRange)) / (blendRange * 2);
+                return smoothstep(raw);
+            }
+
+            const armAmounts = [
+                armKeepAmount(0.2), // arm 1
+                armKeepAmount(0.6), // arm 2
+                armKeepAmount(0.4), // arm 3
+                1.0,                // arm 4 always survives
+                armKeepAmount(0.8)  // arm 5
+            ];
+
+            ctx.rotate(t * 3);
+
+            function getArmRadius(i) {
+                return shortRadius + (longRadius - shortRadius) * armAmounts[i];
+            }
+
+            function getCurveHeight(i) {
+                return shortCurveHeight + (longCurveHeight - shortCurveHeight) * armAmounts[i];
+            }
+
+            function buildStarfishPath() {
+                ctx.beginPath();
+
+                const firstRadius = getArmRadius(0);
+                ctx.moveTo(firstRadius, 0);
+
+                for (let i = 0; i < totalArms; i++) {
+                    const next = (i + 1) % totalArms;
+
+                    const a = i * stepRad;
+                    const a2 = (i + 1) * stepRad;
+
+                    const r1 = getArmRadius(i);
+                    const r2 = getArmRadius(next);
+
+                    const x1 = Math.cos(a) * r1;
+                    const y1 = Math.sin(a) * r1;
+                    const x2 = Math.cos(a2) * r2;
+                    const y2 = Math.sin(a2) * r2;
+
+                    const mid = a + stepRad * 0.5;
+                    const mx = (x1 + x2) / 2;
+                    const my = (y1 + y2) / 2;
+
+                    const curve = Math.min(getCurveHeight(i), getCurveHeight(next));
+
+                    const cx = mx - Math.cos(mid) * curve;
+                    const cy = my - Math.sin(mid) * curve;
+
+                    ctx.quadraticCurveTo(cx, cy, x2, y2);
+                }
+
+                ctx.closePath();
+            }
+
+            // outer outline
+            ctx.lineWidth = 0.4;
+            ctx.strokeStyle = outline;
+            buildStarfishPath();
+            ctx.stroke();
+
+            // inner filled body
+            ctx.lineWidth = 0.2;
+            ctx.fillStyle = fill;
+            ctx.strokeStyle = fill;
+            buildStarfishPath();
+            ctx.fill();
+            ctx.stroke();
+
+            // spots fade out as arms shrink
+            ctx.fillStyle = spot;
+
+            for (let i = 0; i < totalArms; i++) {
+                const amount = armAmounts[i];
+
+                // Skip basically-short arms so tiny dots don't hover around like sad confetti.
+                if (amount <= 0.08) continue;
+
+                const a = i * stepRad;
+                const armRadius = getArmRadius(i);
+
+                const x1 = Math.cos(a) * armRadius * 0.88;
+                const y1 = Math.sin(a) * armRadius * 0.88;
+
+                ctx.save();
+                ctx.globalAlpha *= amount;
+
+                ctx.beginPath();
+                ctx.arc(x1, y1, 0.08 * amount, 0, TAU);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(x1 * 0.68, y1 * 0.68, 0.11 * amount, 0, TAU);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(x1 * 0.68 * 0.45, y1 * 0.68 * 0.48, 0.13 * amount, 0, TAU);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            ctx.restore();
+        });
+    }
+
     const georgeImg = new Image();
     georgeImg.src = "george.png";
 
@@ -3002,10 +3410,19 @@
 
     // -------------------- Fallback --------------------
     function drawFallback(ctx, x, y, r) {
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, TAU);
-        ctx.fill();
+        withTransform(ctx, x, y, r, () => {
+            ctx.fillStyle = F(colors.white);
+            ctx.beginPath();
+            ctx.arc(x, y, 1, 0, TAU);
+            ctx.fill();
+
+            ctx.lineWidth = .1;
+            ctx.strokeStyle = F(colors.black);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(1, 0);
+            ctx.stroke();
+        })
     }
 
     function drawMobObject(ctx, x, y, r, angle = 0, type) {
@@ -3116,10 +3533,6 @@
         ctx.translate(x, y);
         ctx.scale(radius, radius);
 
-        // existing drawPetalArt switch goes here
-        // keep basic exactly how it already was
-        // use unit-sized drawing values, not r * values
-
         switch (typeId) {
             case "basic": {
                 ctx.lineWidth = 0.3;
@@ -3128,6 +3541,190 @@
 
                 ctx.beginPath();
                 ctx.arc(0, 0, 1, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
+            case "antEgg": {
+                ctx.lineWidth = 0.3;
+                ctx.fillStyle = F(colors.cumWhite);
+                ctx.strokeStyle = FB(colors.cumWhite, "#000000", 0.15);
+
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
+            case "beetleEgg": {
+                ctx.lineWidth = 0.3;
+                ctx.fillStyle = F(colors.cumWhite);
+                ctx.strokeStyle = FB(colors.cumWhite, "#000000", 0.15);
+
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 1, 1.25, 0, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
+            case "yinYang": {
+                ctx.lineWidth = 0.15;
+                ctx.fillStyle = F(colors.white);
+                ctx.strokeStyle = FB(colors.white, "#000000", 0.15);
+                ctx.lineCap = "butt";
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, Math.PI);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = F(colors.darkGray);
+                ctx.strokeStyle = FB(colors.darkGray, "#000000", 0.15);
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, Math.PI, true);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.strokeStyle = FB(colors.white, "#000000", 0.15);
+                ctx.beginPath();
+                ctx.arc(-0.5, 0, 0.5, 0, Math.PI);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = F(colors.white);
+                ctx.strokeStyle = FB(colors.white, "#000000", 0.15);
+                ctx.beginPath();
+                ctx.arc(0.5, 0, 0.5, 0, Math.PI, true);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.lineCap = "round";
+                break;
+            }
+            case "bubble": {
+                ctx.lineWidth = 0.15;
+                ctx.strokeStyle = F(colors.bubbleGrey);
+                ctx.globalAlpha = 0.85;
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, TAU);
+                ctx.stroke();
+                ctx.fillStyle = F(colors.bubbleGrey);
+                ctx.globalAlpha = 0.25;
+                ctx.fill();
+
+                ctx.fillStyle = F(colors.white);
+                ctx.beginPath();
+                ctx.arc(.35, .35, .25, 0, TAU);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                break;
+            }
+            case "pollen": {
+                ctx.lineWidth = 0.4;
+                ctx.fillStyle = F(colors.pollenGold);
+                ctx.strokeStyle = FB(colors.pollenGold, "#000000", 0.15);
+
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
+            case "sawblade": {
+                const now = performance.now() * 0.001;
+
+                const cycle = 1.25;
+                const p = (now % cycle) / cycle;
+
+                // 0 → 1 extremely fast, then slowly falls back
+                const accel = p < 0.22
+                    ? p / 0.22
+                    : 1 - ((p - 0.22) / 0.78);
+
+                const eased = Math.max(0, accel);
+                const speedPulse = Math.pow(eased, 0.35) * Math.pow(1 - p, 0.15);
+
+                const t = now * 1.2 + speedPulse * 4.5;
+                ctx.save();
+                ctx.rotate(t);
+                ctx.lineWidth = 0.11;
+                const color = blendHex(colors.mecha, "#000000", 0.15);
+                ctx.fillStyle = F(color);
+                ctx.strokeStyle = FB(color, "#000000", 0.1);
+
+                const r = 1.1;
+                const teeth = 16;
+                const innerR = r * 0.85;
+                const outerR = r;
+                const holeR = r * 0.24;
+
+                ctx.beginPath();
+
+                // Outer sawblade shape
+                for (let i = 0; i < teeth; i++) {
+                    const baseA = (Math.PI * 2 * i) / teeth;
+                    const nextA = (Math.PI * 2 * (i + 1)) / teeth;
+
+                    const tipA = baseA + (nextA - baseA) * 1.22;
+                    const rootA = baseA + (nextA - baseA) * 0.18;
+
+                    const rootX = Math.cos(rootA) * innerR;
+                    const rootY = Math.sin(rootA) * innerR;
+
+                    const tipX = Math.cos(tipA) * outerR;
+                    const tipY = Math.sin(tipA) * outerR;
+
+                    if (i === 0) ctx.moveTo(rootX, rootY);
+                    else ctx.lineTo(rootX, rootY);
+
+                    ctx.lineTo(tipX, tipY);
+                }
+
+                ctx.closePath();
+
+                // Inner hole path
+                ctx.moveTo(holeR, 0);
+                ctx.arc(0, 0, holeR, 0, Math.PI * 2, true);
+                ctx.closePath();
+
+                // Fill with actual cutout hole
+                ctx.fill("evenodd");
+                ctx.stroke();
+
+                ctx.restore();
+                break;
+            }
+            case "faster": {
+                ctx.lineWidth = 0.4;
+                ctx.fillStyle = F(colors.cumWhite);
+                ctx.strokeStyle = FB(colors.cumWhite, "#000000", 0.15);
+
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            }
+            case "landmine": {
+                ctx.lineWidth = 0.225;
+                ctx.fillStyle = F(colors.mecha);
+                ctx.strokeStyle = FB(colors.mecha, "#000000", 0.15);
+
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, TAU);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.lineWidth = 0.125;
+                ctx.beginPath();
+                ctx.moveTo(-1, 0);
+                ctx.lineTo(1, 0);
+                ctx.stroke();
+
+                ctx.lineWidth = 0.225;
+                ctx.fillStyle = F("#ee0000");
+                ctx.strokeStyle = FB("#ee0000", "#000000", 0.15);
+                ctx.beginPath();
+                ctx.arc(0, 0, .125, 0, TAU);
                 ctx.fill();
                 ctx.stroke();
                 break;
@@ -3147,7 +3744,22 @@
                 ctx.beginPath();
                 ctx.moveTo(-.04, 0);
                 ctx.lineTo(1.3, .01);
+                ctx.quadraticCurveTo(1.5, 0.2, 1.75, 0.2);
                 ctx.stroke();
+                ctx.restore();
+                break;
+            }
+            case "maple": {
+                ctx.save();
+                ctx.rotate(0.3);
+                ctx.lineWidth = 0.13;
+                ctx.fillStyle = F(colors.ladybugRed);
+                ctx.strokeStyle = FB(colors.ladybugRed, "#000000", 0.15);
+                const path = new Path2D("m -0.054 1.218 l 0.027 -0.5178 a 0.057 0.057 90 0 0 -0.0666 -0.0588 l -0.5154 0.0906 l 0.0696 -0.192 a 0.039 0.039 90 0 0 -0.012 -0.0438 l -0.5646 -0.4572 l 0.1272 -0.0594 a 0.039 0.039 90 0 0 0.0204 -0.0474 l -0.1116 -0.3432 l 0.3252 0.069 a 0.039 0.039 90 0 0 0.0438 -0.0228 l 0.063 -0.1482 l 0.2538 0.2724 a 0.039 0.039 90 0 0 0.0666 -0.0342 l -0.1224 -0.6312 l 0.1962 0.1134 a 0.039 0.039 90 0 0 0.0546 -0.0162 l 0.1992 -0.3912 l 0.1992 0.3912 a 0.039 0.039 90 0 0 0.0546 0.0162 l 0.1962 -0.1134 l -0.1224 0.6312 a 0.039 0.039 90 0 0 0.0666 0.0342 l 0.2538 -0.2724 l 0.063 0.1482 a 0.039 0.039 90 0 0 0.0438 0.0228 l 0.3252 -0.069 l -0.1116 0.3432 a 0.039 0.039 90 0 0 0.0204 0.0474 l 0.1272 0.0594 l -0.5646 0.4572 a 0.039 0.039 90 0 0 -0.012 0.0438 l 0.0696 0.192 l -0.5154 -0.0906 a 0.057 0.057 90 0 0 -0.0666 0.0588 l 0.027 0.5178 z");
+
+                ctx.beginPath();
+                ctx.fill(path);
+                ctx.stroke(path);
                 ctx.restore();
                 break;
             }
@@ -3161,6 +3773,58 @@
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
+                break;
+            }
+            case "cactus": {
+                const radius = 1.2;
+                const outerR = 1.15;
+                const innerR = 0.72;
+                const points = 8;
+
+                // Outer cactus badge
+                ctx.lineWidth = 0.2;
+                ctx.fillStyle = F(colors.cactusGreen);
+                ctx.strokeStyle = FB(colors.cactusGreen, "#000000", 0.12);
+
+                ctx.beginPath();
+                const sides = 8;
+
+                for (let i = 0; i <= sides; i++) {
+                    // Calculate the angle for each vertex (use same paramization so shape matches thorns)
+                    const angle = (i / sides) * 2 * Math.PI;
+
+                    // Calculate the vertex position
+                    const x = Math.cos(angle) * radius;
+                    const y = Math.sin(angle) * radius;
+
+                    if (i === 0) {
+                        // Move to the first vertex
+                        ctx.moveTo(x, y);
+                    } else {
+                        // Calculate the midpoint between the current and previous vertex
+                        const prevAngle = ((i - 1) / sides) * 2 * Math.PI;
+                        const midX =
+                            Math.cos(prevAngle + (angle - prevAngle) / 2) * radius * 0.8; // Bulge inward
+                        const midY =
+                            Math.sin(prevAngle + (angle - prevAngle) / 2) * radius * 0.8; // Bulge inward
+
+                        // Draw a quadratic curve
+                        ctx.quadraticCurveTo(midX, midY, x, y);
+                    }
+                }
+
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner light circle
+                ctx.lineWidth = 0;
+                ctx.fillStyle = F(colors.cactusLightGreen);
+
+                ctx.beginPath();
+                ctx.arc(0, 0, 0.66, 0, Math.PI * 2);
+                ctx.fill();
+
                 break;
             }
             case "rose": {
@@ -3178,7 +3842,7 @@
                 ctx.lineWidth = 0.3;
                 ctx.fillStyle = F(colors.stingerBlack);
                 ctx.strokeStyle = FB(colors.stingerBlack, "#000000", 0.15);
-                drawPolygonPath(ctx, 3, 1.5, TAU / 3, 1, 1);
+                drawPolygonPath(ctx, 3, 1.5, TAU / 3 * 2, 1, 1);
                 ctx.fill();
                 ctx.stroke();
                 break;
@@ -3216,6 +3880,18 @@
         ctx.translate(x, y);
         ctx.rotate(angle);
 
+        const deathP = petal._deathProgress ?? null;
+
+        if (deathP != null) {
+            const k = clamp(deathP, 0, 1);
+
+            const deathScale = 1 + k * 0.85;
+            ctx.scale(deathScale, deathScale);
+
+            ctx.globalAlpha *= 1 - k;
+            _deathA = k;
+        }
+
         drawPetalArt(
             ctx,
             petal.typeId,
@@ -3229,6 +3905,7 @@
         ctx.restore();
 
         _flashA = 0;
+        _deathA = 0;
     }
 
     function drawPetalArtRotated(ctx, typeId, rarity, x, y, size, angle = 0, opts = {}) {
@@ -3291,6 +3968,23 @@
             ctx.translate(x, y);
             ctx.rotate(mob.angle || 0);
 
+            // death animation progress, 0..1
+            const deathP = mob._deathProgress ?? null;
+
+            if (deathP != null) {
+                const k = clamp(deathP, 0, 1);
+
+                // very quick grow
+                const deathScale = 1 + k * 0.85;
+                ctx.scale(deathScale, deathScale);
+
+                // fade out near instantly
+                ctx.globalAlpha *= 1 - k;
+
+                // make all F()/FB() colors wash toward white
+                _deathA = k;
+            }
+
             // set per-mob flash amount for the helper functions
             _flashA = flashAlpha;
 
@@ -3309,7 +4003,8 @@
                 case "mechaBeetle": out = drawMechaBeetle(ctx, 0, 0, r, animTime); break;
                 case "rockMob": out = drawRockMob(ctx, 0, 0, r, mob.randoms, mob.rarity); break;
                 case "bubble": out = drawBubble(ctx, 0, 0, r); break;
-                case "jellyfish": out = drawJellyfish(ctx, 0, 0, r); break;
+                case "jellyfish": out = drawJellyfish(ctx, 0, 0, r, animTime); break;
+                case "antGuard": out = drawGuardAnt(ctx, 0, 0, r, animTime, mob.faction); break;
                 case "queenAnt": out = drawQueenAnt(ctx, 0, 0, r, animTime); break;
                 case "ladybug": out = drawLadybug(ctx, 0, 0, r, mob.randoms, mob.rarity, colors.ladybugRed, colors.darkGray); break;
                 case "centipede": out = drawCentipede(ctx, 0, 0, r, animTime, colors.peaGreen, mob.chainPrevId); break;
@@ -3342,11 +4037,14 @@
                 case "antHole": out = drawHole(ctx, 0, 0, r, colors.antHole); break;
                 case "crab": out = drawCrab(ctx, 0, 0, r, animTime); break;
                 case "leech": out = drawLeech(ctx, mob, x, y, r, animTime); break;
+                case "starfish": out = drawStarfish(ctx, 0, 0, r, animTime, mob.hp / mob.maxHp); break;
+                case "aphid": out = drawAphid(ctx, 0, 0, r, animTime); break;
                 default: out = drawFallback(ctx, 0, 0, r); break;
             }
 
             // IMPORTANT: reset so UI/text/etc doesn't get “mysteriously” tinted
             _flashA = 0;
+            _deathA = 0;
 
             ctx.restore();
             return out;
@@ -3395,7 +4093,8 @@
         drawHpBar,
         drawPetalArt,
         drawPetalArtFlash,
-        drawPetalArtRotated
+        drawPetalArtRotated,
+        drawPlayerFlower
     };
 
     window.Render = Render;
