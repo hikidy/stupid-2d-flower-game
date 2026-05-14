@@ -31,7 +31,7 @@ canvas.addEventListener("wheel", (e) => {
 
     // Otherwise, zoom camera.
     const factor = Math.exp(-e.deltaY * 0.001);
-    zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+    //zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
 }, { passive: false });
 
 const statusEl = document.getElementById("status");
@@ -81,6 +81,45 @@ function recomputeExtend() {
 }
 
 window.addEventListener("keydown", (e) => {
+    if (chatOpen) {
+        if (e.code === "Enter") {
+            sendChatMessage();
+            e.preventDefault();
+            return;
+        }
+
+        if (e.code === "Escape") {
+            chatInput = "";
+            chatOpen = false;
+            e.preventDefault();
+            return;
+        }
+
+        if (e.code === "Backspace") {
+            chatInput = chatInput.slice(0, -1);
+            e.preventDefault();
+            return;
+        }
+
+        if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (chatInput.length < 140) {
+                chatInput += e.key;
+            }
+            e.preventDefault();
+            return;
+        }
+
+        e.preventDefault();
+        return;
+    }
+
+    if (e.code === "Enter") {
+        chatOpen = true;
+        chatInput = "";
+        e.preventDefault();
+        return;
+    }
+
     if (e.code === "Space") {
         spaceDown = true;
         recomputeExtend();
@@ -149,6 +188,48 @@ let staticData = null;
 let petalTypes = {};
 let changelogText = "Loading changelog...";
 let changelogLoaded = false;
+
+// -------------------- Chat --------------------
+const chatMessages = [];
+const CHAT_MAX_MESSAGES = 40;
+const CHAT_FADE_MS = 9000;
+
+let chatOpen = false;
+let chatInput = "";
+let chatCursorBlink = 0;
+
+function pushChatMessage(msg) {
+    if (!msg || !msg.text) return;
+
+    chatMessages.push({
+        id: msg.id ?? `${msg.playerId ?? "?"}:${performance.now()}`,
+        playerId: msg.playerId ?? null,
+        name: msg.name || `Player ${msg.playerId ?? "?"}`,
+        text: String(msg.text ?? ""),
+        time: msg.time ?? Date.now()
+    });
+
+    while (chatMessages.length > CHAT_MAX_MESSAGES) {
+        chatMessages.shift();
+    }
+}
+
+function sendChatMessage() {
+    const text = chatInput.trim();
+    if (!text) {
+        chatInput = "";
+        chatOpen = false;
+        return;
+    }
+
+    safeWsSend({
+        t: "chat_send",
+        text
+    });
+
+    chatInput = "";
+    chatOpen = false;
+}
 
 function loadChangelog() {
     fetch("/CHANGELOG.md")
@@ -360,7 +441,7 @@ function getInterpolatedState() {
             ...a,
             x: lerp(b.x, a.x, t),
             y: lerp(b.y, a.y, t),
-
+            lookAngle: lerpAngle(b.lookAngle ?? a.lookAngle ?? 0, a.lookAngle ?? b.lookAngle ?? 0, t),
             angleBase: lerpAngle(b.angleBase, a.angleBase, t),
             petalPos,
             petals,
@@ -435,6 +516,125 @@ function getInterpolatedState() {
 const PETAL = { count: 5, orbitRadius: 38, radius: 7.5 };
 const PLAYER_RADIUS = 15;
 const MOB_RADIUS = 18;
+
+// -------------------- Death animations --------------------
+const DEATH_ANIM_DURATION = .09; // seconds, fast pop-fade
+
+const lastSeenMobs = new Map();
+const deathMobs = new Map();
+
+const lastSeenPetals = new Map();
+const deathPetals = new Map();
+
+function clientNowSec() {
+    return performance.now() / 1000;
+}
+
+function rememberMobDeaths(mobs) {
+    const current = new Map();
+
+    for (const m of safeArray(mobs)) {
+        if (!m || m.id == null) continue;
+
+        current.set(m.id, {
+            ...m,
+            radius: m.radius || MOB_RADIUS
+        });
+    }
+
+    for (const [id, oldMob] of lastSeenMobs) {
+        if (!current.has(id) && !deathMobs.has(id)) {
+            deathMobs.set(id, {
+                ...oldMob,
+                _deathStart: clientNowSec()
+            });
+        }
+    }
+
+    lastSeenMobs.clear();
+    for (const [id, mob] of current) {
+        lastSeenMobs.set(id, mob);
+    }
+}
+
+function getPetalDeathId(playerId, pt, slotIndex, subIndex) {
+    return `petal:${playerId}:${pt.id ?? slotIndex}:${subIndex}`;
+}
+
+function collectVisiblePetals(players) {
+    const out = [];
+
+    for (const p of safeArray(players)) {
+        const playerId = p.id ?? myId ?? "unknown";
+        const petals = safeArray(p.petals);
+
+        for (let slotIndex = 0; slotIndex < petals.length; slotIndex++) {
+            const pt = petals[slotIndex];
+            const wp = p.petalPos?.[slotIndex];
+
+            if (!pt || !wp) continue;
+
+            const positions =
+                Array.isArray(pt.multiPetalPos) && pt.multiPetalPos.length > 0
+                    ? pt.multiPetalPos
+                    : [wp];
+
+            const baseRadius = pt.multiPetalRadius ?? pt.radius ?? PETAL.radius;
+
+            for (const mp of positions) {
+                const subIndex = mp.index ?? 0;
+
+                // Dead/reloading petals should become death anims.
+                if (mp.alive === false || mp.hp <= 0) continue;
+
+                const id = getPetalDeathId(playerId, pt, slotIndex, subIndex);
+                const radius = mp.radius ?? baseRadius;
+
+                out.push({
+                    id,
+                    flashId: id,
+                    typeId: pt.typeId,
+                    rarity: pt.rarity ?? 0,
+                    hp: mp.hp ?? pt.hp,
+                    x: mp.x,
+                    y: mp.y,
+                    radius,
+                    angle: mp.spinAngle ?? pt.spinAngle ?? mp.angle ?? pt.angle ?? 0
+                });
+            }
+        }
+    }
+
+    return out;
+}
+
+function rememberPetalDeaths(players) {
+    const currentPetals = collectVisiblePetals(players);
+    const current = new Map();
+
+    for (const petal of currentPetals) {
+        current.set(petal.id, petal);
+    }
+
+    for (const [id, oldPetal] of lastSeenPetals) {
+        if (!current.has(id) && !deathPetals.has(id)) {
+            deathPetals.set(id, {
+                ...oldPetal,
+                _deathStart: clientNowSec()
+            });
+        }
+    }
+
+    lastSeenPetals.clear();
+    for (const [id, petal] of current) {
+        lastSeenPetals.set(id, petal);
+    }
+}
+
+function updateDeathTracking() {
+    rememberMobDeaths(state.mobs);
+    rememberPetalDeaths(state.players);
+}
 
 const wsProto = location.protocol === "https:" ? "wss" : "ws";
 const ws = new WebSocket(`${wsProto}://${location.host}`);
@@ -555,6 +755,22 @@ ws.addEventListener("message", (ev) => {
         craftNotice = msg.message || "Craft result received.";
         craftNoticeUntil = performance.now() + 2200;
     }
+
+    if (msg.t === "chat_history") {
+        chatMessages.length = 0;
+
+        for (const chatMsg of safeArray(msg.messages)) {
+            pushChatMessage(chatMsg);
+        }
+
+        return;
+    }
+
+    if (msg.t === "chat") {
+        pushChatMessage(msg);
+        return;
+    }
+
     if (msg.t === "state") pushSnapshot(msg);
 });
 
@@ -580,8 +796,8 @@ window.setSlot = function (slot, type, rarity) {
         if (!Number.isFinite(slotNumber)) throw new Error('slot must be a number');
 
         let slotIndex = slotNumber | 0;
-        if (slotIndex >= 1 && slotIndex <= 10) {
-            slotIndex = slotIndex === 10 ? 9 : slotIndex - 1;
+        if (slotIndex >= 0 && slotIndex <= 9) {
+            slotIndex = slotNumber;
         }
         if (slotIndex < 0 || slotIndex > 9) throw new Error('slot must be 0-9 or 1-10');
 
@@ -658,6 +874,82 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.stroke();
 }
 
+function roundedRectPath(ctx, x, y, w, h, r) {
+    if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        return;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+function drawReloadSpiral(ctx, x, y, w, h, pctLeft, color) {
+    pctLeft = clamp(Number(pctLeft) || 0, 0, 1);
+
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const maxR = Math.hypot(w, h) * 0.58;
+
+    const progress = 1 - pctLeft;
+    const TAU = Math.PI * 2;
+
+    ctx.save();
+
+    // Clip to inner card area.
+    roundedRectPath(ctx, x, y, w, h, 0);
+    ctx.clip();
+
+    ctx.translate(cx, cy);
+
+    // As reload goes down, this rotates.
+    ctx.rotate(performance.now() * 0.008 - pctLeft * TAU * 2.25);
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(3, Math.min(w, h) * 0.09);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    ctx.beginPath();
+
+    const turns = 3.15;
+    const maxA = TAU * turns;
+    const visibleR = maxR * (0.18 + progress * 0.82);
+
+    for (let a = 0; a <= maxA; a += 0.08) {
+        const u = a / maxA;
+        const r = u * visibleR;
+
+        const wob = Math.sin(a * 2.0) * 0.05 * visibleR;
+        const px = Math.cos(a) * (r + wob);
+        const py = Math.sin(a) * (r + wob);
+
+        if (a === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+
+    ctx.stroke();
+
+    // Small pulsing center dot, because reloading should look alive.
+    ctx.globalAlpha *= 0.75;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(2, Math.min(w, h) * 0.045), 0, TAU);
+    ctx.fill();
+
+    ctx.restore();
+}
+
 function rebuildInvStacks(me) {
     if (!me) return;
 
@@ -730,6 +1022,93 @@ function drawCanvasButton(label, x, y, w, h, active) {
     ctx.fillText(label, x + w / 2, y + h / 2);
 
     canvasUI.buttons.push({ label, x, y, w, h });
+}
+
+function drawChatOverlay() {
+    const now = Date.now();
+
+    ctx.save();
+
+    const x = 18;
+    const bottom = canvas.height - 150;
+    const w = Math.min(460, canvas.width - 36);
+    const lineH = 19;
+    const pad = 10;
+
+    const visibleMessages = chatMessages.filter(msg => {
+        return chatOpen || now - msg.time < CHAT_FADE_MS;
+    });
+
+    const maxShown = chatOpen ? 12 : 6;
+    const shown = visibleMessages.slice(-maxShown);
+
+    let y = bottom - shown.length * lineH - pad * 2;
+
+    if (shown.length > 0 || chatOpen) {
+        const boxH = shown.length * lineH + pad * 2 + (chatOpen ? 38 : 0);
+
+        ctx.fillStyle = chatOpen
+            ? "rgba(0,0,0,0.62)"
+            : "rgba(0,0,0,0.34)";
+
+        ctx.strokeStyle = chatOpen
+            ? "rgba(255,255,255,0.22)"
+            : "rgba(255,255,255,0.08)";
+
+        ctx.lineWidth = 1;
+        roundRect(ctx, x, y, w, boxH, 12);
+
+        ctx.font = "700 14px Ubuntu, Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        let textY = y + pad;
+
+        for (const msg of shown) {
+            const age = now - msg.time;
+            const fade = chatOpen ? 1 : clamp(1 - age / CHAT_FADE_MS, 0, 1);
+
+            ctx.globalAlpha = fade;
+
+            const isMe = msg.playerId === myId;
+            const name = isMe ? "You" : msg.name;
+
+            ctx.fillStyle = isMe ? "#ffe56b" : "#ffffff";
+            ctx.fillText(`${name}:`, x + pad, textY);
+
+            const nameW = ctx.measureText(`${name}: `).width;
+
+            ctx.fillStyle = "rgba(255,255,255,0.88)";
+            ctx.fillText(msg.text, x + pad + nameW, textY);
+
+            textY += lineH;
+        }
+
+        ctx.globalAlpha = 1;
+
+        if (chatOpen) {
+            const inputY = y + boxH - 32;
+            const inputX = x + pad;
+            const inputW = w - pad * 2;
+            const inputH = 24;
+
+            ctx.fillStyle = "rgba(255,255,255,0.10)";
+            ctx.strokeStyle = "rgba(255,255,255,0.22)";
+            ctx.lineWidth = 1;
+            roundRect(ctx, inputX, inputY, inputW, inputH, 8);
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "700 14px Ubuntu, Arial, sans-serif";
+            ctx.textBaseline = "middle";
+
+            chatCursorBlink += 1;
+            const cursor = Math.floor(chatCursorBlink / 28) % 2 === 0 ? "|" : "";
+
+            ctx.fillText(`> ${chatInput}${cursor}`, inputX + 8, inputY + inputH / 2);
+        }
+    }
+
+    ctx.restore();
 }
 
 function getSettingsRows() {
@@ -1067,40 +1446,115 @@ function drawPetalCard(x, y, typeId, rarity = 0, opts = {}) {
     const alpha = opts.alpha ?? 1;
     const keyText = opts.keyText ?? "";
 
+    const hp = Number(opts.hp);
+    const maxHp = Number(opts.maxHp);
+    const reloadLeft = Number(opts.reloadLeft ?? 0);
+    const reloadTime = Number(opts.reloadTime ?? petalTypes[typeId]?.reload ?? 1);
+
+    const hasHp = Number.isFinite(hp) && Number.isFinite(maxHp) && maxHp > 0;
+    const hpPct = hasHp ? clamp(hp / maxHp, 0, 1) : 1;
+
+    const isReloading = reloadLeft > 0 && reloadTime > 0;
+    const reloadPctLeft = isReloading
+        ? clamp(reloadLeft / reloadTime, 0, 1)
+        : 0;
+
     const rarityColor = rarityBorderColor(rarity);
     const outerColor = blendHex(rarityColor, "#000000", 0.15);
-    const innerColor = rarityColor;
+
+    const innerEmptyColor = blendHex(
+        rarityColor,
+        "#000000",
+        0.45
+    );
+
+    const innerBrightColor = rarityColor;
 
     ctx.save();
 
-    // Move the card's local origin to its screen/world position.
     ctx.translate(x, y);
-
     ctx.globalAlpha *= alpha;
-    if (dimmed) ctx.globalAlpha *= 0.45;
 
     const radius = size * 0.055;
-    const border = size * 0.085;
 
-    // Outer thick rarity frame.
+    const borderRatio = 0.085;
+    const innerRatio = 0.83;
+
+    const border = size * borderRatio;
+
+    const innerX = size * borderRatio;
+    const innerY = size * borderRatio;
+    const innerW = size * innerRatio;
+    const innerH = size * innerRatio;
+
+    // Outer rarity frame.
     ctx.fillStyle = outerColor;
     ctx.strokeStyle = outerColor;
     ctx.lineWidth = 0;
     roundRect(ctx, 0, 0, size, size, radius);
 
-    // Inner bright panel.
-    ctx.fillStyle = innerColor;
-    ctx.strokeStyle = innerColor;
-    ctx.lineWidth = 0;
-    roundRect(
-        ctx,
-        border,
-        border,
-        size - border * 2,
-        size - border * 2,
-        0
-    );
+    // Empty/dark inner panel.
+    ctx.fillStyle = innerEmptyColor;
+    ctx.fillRect(innerX, innerY, innerW, innerH);
 
+    // Bright HP fill or reload triangle.
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.rect(innerX, innerY, innerW, innerH);
+    ctx.clip();
+
+    if (isReloading) {
+        const cx = innerX + innerW / 2;
+        const cy = innerY + innerH / 2;
+
+        const reloadProgress = 1 - reloadPctLeft;
+
+        const maxR = Math.hypot(innerW, innerH) * 0.85;
+
+        // Length stays mostly large so the wedge reaches outward.
+        const len = maxR;
+
+        // Starts thin, gets wider as reload finishes.
+        const minSpread = Math.PI * 0.035;
+        const maxSpread = Math.PI * 0.85;
+        const spread = minSpread + (maxSpread - minSpread) * reloadProgress;
+
+        // Spins constantly while also slightly offsetting based on reload.
+        const a = performance.now() * 0.008 - reloadPctLeft * Math.PI * 2;
+
+        ctx.fillStyle = innerBrightColor;
+        ctx.globalAlpha *= 0.95;
+
+        ctx.beginPath();
+
+        // Point at the center.
+        ctx.moveTo(cx, cy);
+
+        // Two outer points get farther apart as spread increases.
+        ctx.lineTo(
+            cx + Math.cos(a - spread) * len * 2,
+            cy + Math.sin(a - spread) * len * 2
+        );
+
+        ctx.lineTo(
+            cx + Math.cos(a + spread) * len * 2,
+            cy + Math.sin(a + spread) * len * 2
+        );
+
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        const fillH = innerH * hpPct;
+        const fillY = innerY + innerH - fillH;
+
+        ctx.fillStyle = innerBrightColor;
+        ctx.fillRect(innerX, fillY, innerW, fillH);
+    }
+
+    ctx.restore();
+    // Clip icon and label to the whole card.
+    roundedRectPath(ctx, 0, 0, size, size, radius);
     ctx.clip();
 
     const TAU = Math.PI * 2;
@@ -1126,8 +1580,6 @@ function drawPetalCard(x, y, typeId, rarity = 0, opts = {}) {
             const py = iconCenterY + Math.sin(angle) * ringRadius;
 
             ctx.save();
-
-            // Rotate around THIS mini-petal, not around the entire canvas.
             ctx.translate(px, py);
             ctx.rotate(angle + Math.PI / 2);
 
@@ -1153,7 +1605,18 @@ function drawPetalCard(x, y, typeId, rarity = 0, opts = {}) {
         );
     }
 
-    // Big chunky label.
+    if (keyText) {
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = Math.max(2, size * 0.035);
+        ctx.font = `900 ${Math.round(size * 0.14)}px Ubuntu, Arial, sans-serif`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        ctx.strokeText(String(keyText), size * 0.08, size * 0.065);
+        ctx.fillText(String(keyText), size * 0.08, size * 0.065);
+    }
+
     if (label) {
         const labelText = String(label);
         const maxTextWidth = size * 0.78;
@@ -1212,7 +1675,12 @@ function drawCanvasPetalSlot(slot, item, indexText, countText, reloadText, opts 
             label: item.label || item.typeId,
             dimmed: item.dim || !!reloadText,
             alpha: isDragging ? 0.45 : 1,
-            keyText: indexText
+            keyText: indexText,
+
+            hp: item.hp,
+            maxHp: item.maxHp,
+            reloadLeft: item.reloadLeft,
+            reloadTime: item.reloadTime
         });
 
         ctx.restore();
@@ -1419,6 +1887,11 @@ function drawCanvasBottomUI(me) {
                 rarity: pt.rarity ?? 0,
                 dim: reloading,
                 label: pt.label || pt.typeId || "petal",
+
+                hp: pt.hp,
+                maxHp: pt.maxHp,
+                reloadLeft: pt.reloadLeft,
+                reloadTime: pt.reloadTime
             },
             String(i + 1),
             null,
@@ -1451,7 +1924,12 @@ function drawCanvasBottomUI(me) {
                 size: secondarySize,
                 label: pt.label || pt.typeId || "petal",
                 alpha: 0.62,
-                keyText: ""
+                keyText: "",
+
+                hp: pt.hp,
+                maxHp: pt.maxHp,
+                reloadLeft: pt.reloadLeft,
+                reloadTime: pt.reloadTime
             }
         );
     }
@@ -2190,6 +2668,84 @@ const rarityStatic = {
     10: { name: "Sublime", color: "#222222", },
 };
 
+function drawDeathMobs(viewMinX, viewMaxX, viewMinY, viewMaxY) {
+    const t = clientNowSec();
+
+    for (const [id, mob] of deathMobs) {
+        const p = (t - mob._deathStart) / DEATH_ANIM_DURATION;
+
+        if (p >= 1) {
+            deathMobs.delete(id);
+            continue;
+        }
+
+        const x = mob.x;
+        const y = mob.y;
+        const r = mob.radius || MOB_RADIUS;
+
+        if (
+            x + r * 2 < viewMinX ||
+            x - r * 2 > viewMaxX ||
+            y + r * 2 < viewMinY ||
+            y - r * 2 > viewMaxY
+        ) {
+            continue;
+        }
+
+        Render.drawMob(
+            ctx,
+            {
+                ...mob,
+                _deathProgress: p
+            },
+            x,
+            y,
+            r
+        );
+    }
+}
+
+function drawDeathPetals(viewMinX, viewMaxX, viewMinY, viewMaxY) {
+    const t = clientNowSec();
+
+    for (const [id, petal] of deathPetals) {
+        const p = (t - petal._deathStart) / DEATH_ANIM_DURATION;
+
+        if (p >= 1) {
+            deathPetals.delete(id);
+            continue;
+        }
+
+        const x = petal.x;
+        const y = petal.y;
+        const r = petal.radius || PETAL.radius;
+
+        if (
+            x + r * 2 < viewMinX ||
+            x - r * 2 > viewMaxX ||
+            y + r * 2 < viewMinY ||
+            y - r * 2 > viewMaxY
+        ) {
+            continue;
+        }
+
+        Render.drawPetalArtFlash(
+            ctx,
+            {
+                typeId: petal.typeId,
+                rarity: petal.rarity ?? 0,
+                hp: petal.hp,
+                angle: petal.angle ?? 0,
+                flashId: petal.flashId ?? id,
+                _deathProgress: p
+            },
+            x,
+            y,
+            r
+        );
+    }
+}
+
 function render() {
     requestAnimationFrame(render);
 
@@ -2201,6 +2757,8 @@ function render() {
         state.pickups = safeArray(view.pickups);
         state.mobObjects = safeArray(view.mobObjects);
     }
+
+    updateDeathTracking();
 
     const me = state.players.find(p => p.id === myId);
     if (me) rebuildInvStacks(me);
@@ -2353,23 +2911,52 @@ function render() {
                 }
             }
         }
+
+        drawDeathMobs(viewMinX, viewMaxX, viewMinY, viewMaxY);
     }
 
     // players + petals
     for (const p of state.players) {
         const x = p.x;
         const y = p.y;
+        const r = p.radius || PLAYER_RADIUS;
 
-        ctx.fillStyle = "#ffef60";
-        drawCircle(x, y, PLAYER_RADIUS);
+        // simple viewport cull
+        if (
+            x + r < viewMinX ||
+            x - r > viewMaxX ||
+            y + r < viewMinY ||
+            y - r > viewMaxY
+        ) {
+            continue;
+        }
 
-        // player hp bar (world space)
+        const flowerRenderState =
+            p.id === myId
+                ? {
+                    ...p,
+                    isSelf: true,
+                    offensiveMode: !!input.extend,
+                    defensiveMode: !!input.retract
+                }
+                : {
+                    ...p,
+                    isSelf: false,
+                    offensiveMode: false,
+                    defensiveMode: false
+                };
+
+        Render.drawPlayerFlower(ctx, x, y, r, flowerRenderState);
+
+        // player hp bar
         const bw = 52, bh = 7;
         const pct = clamp((p.hp ?? p.maxHp ?? 1) / Math.max(1, p.maxHp ?? 1), 0, 1);
+
         ctx.fillStyle = "rgba(42, 56, 44, 0.55)";
-        ctx.fillRect(x - bw / 2, y + PLAYER_RADIUS + 10, bw, bh);
+        ctx.fillRect(x - bw / 2, y + r + 10, bw, bh);
+
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(x - bw / 2, y + PLAYER_RADIUS + 10, bw * pct, bh);
+        ctx.fillRect(x - bw / 2, y + r + 10, bw * pct, bh);
 
         const playerPetals = safeArray(p.petals);
         for (let i = 0; i < playerPetals.length; i++) {
@@ -2380,6 +2967,8 @@ function render() {
             drawPetalOrMulti(pt, wp, i, p.id ?? myId ?? "unknown");
         }
     }
+
+    drawDeathPetals(viewMinX, viewMaxX, viewMinY, viewMaxY);
 
     // reset transform back to screen space for canvas UI
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2393,6 +2982,11 @@ function render() {
         drawDraggedCanvasItem(me);
         drawChangelogOverlay();
         drawCraftNotice();
+        drawChatOverlay();
+        ctx.fillStyle = "#000000";
+        ctx.font = "10px Ubuntu, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`${me.x}, ${me.y}`, canvas.width / 100 + 1000, canvas.height / 100);
     }
 
     function drawCraftNotice() {
