@@ -32,8 +32,10 @@ const PetalTypes = {
     rock: { id: "rock", label: "Rock", dmg: 5, maxHp: 15, reload: 3.0, radius: 1.1 },
     rice: { id: "rice", label: "Rice", dmg: 5, maxHp: 1, reload: 0.000001, radius: .55, },
     stinger: { id: "stinger", label: "Stinger", dmg: 100, maxHp: 5, reload: 5, radius: .55, multi: [1, 1, 1, 1, 1, 3, 5, 5, 6], clumps: true, splitMultiDamage: true, },
+    sand: { id: "sand", label: "Sand", dmg: 5, maxHp: 1.25, reload: 1.5, radius: .5, multi: [4, 4, 4, 4, 4, 4, 4, 4, 4], clumps: true, splitMultiDamage: false, },
     poo: { id: "poo", label: "Poo", dmg: 1, maxHp: 8, reload: 4.0, aggroRangeMult: 0.10 },
     lentil: { id: "lentil", label: "Lentil", dmg: 12, maxHp: 15, reload: 4.0, petalAttractBonus: 0.007, radius: .45 },
+    wing: { id: "wing", label: "Wing", dmg: 20, maxHp: 10, reload: 2.5 },
     faster: {
         id: "faster",
         label: "Faster",
@@ -147,6 +149,34 @@ const PetalTypes = {
         deathSummonFaction: "owner",
         deathSummonBehavior: "hostile"
     },
+    hornetEgg: {
+        id: "hornetEgg",
+        label: "Eggs",
+        dmg: 1,
+        maxHp: Number.MIN_VALUE,
+        reload: 1.0,
+        multi: [3, 3, 3, 3, 3, 3, 3, 3, 3],
+        clumps: false,
+        splitMultiDamage: true,
+        deathSummonType: "hornet",
+        deathSummonRarityOffset: -1,
+        deathSummonFaction: "owner",
+        deathSummonBehavior: "hostile"
+    },
+    georgeEgg: {
+        id: "georgeEgg",
+        label: "Yellow Hat",
+        dmg: 1,
+        maxHp: Number.MIN_VALUE,
+        reload: 1.0,
+        multi: [8, 8, 8, 8, 8, 8, 8, 8, 8],
+        clumps: false,
+        splitMultiDamage: true,
+        deathSummonType: "george",
+        deathSummonRarityOffset: -1,
+        deathSummonFaction: "owner",
+        deathSummonBehavior: "hostile"
+    },
     bubble: {
         id: "bubble",
         label: "Bubble",
@@ -182,6 +212,19 @@ const PetalTypes = {
         // Applies while equipped, even if reloading/dead.
         maxHpBonus: 30,
         maxHpBonusPerRarity: 25
+    },
+    bloodSacrifice: {
+        id: "bloodSacrifice",
+        label: "Blood Sacrifice",
+
+        dmg: 0,
+        maxHp: 1,
+        reload: 999,
+
+        noPetalBody: true,
+
+        deathMobRarity: 7,
+        minZoneRarity: 3.5
     },
     god: {
         id: "god",
@@ -225,7 +268,6 @@ const MobTypes = {
         mateMaxChildrenNearby: 8,
         mateChildType: "lovebugBaby"
     },
-
     lovebugBaby: {
         id: "lovebugBaby",
         label: "Baby Lovebug",
@@ -263,7 +305,7 @@ const MobTypes = {
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wander",
-        drops: ["rice", "rose"],
+        drops: ["wing", "faster"],
         mass: 0.1,
     },
     stinkbug: {
@@ -380,6 +422,34 @@ const MobTypes = {
         mass: 10,
         sizeVary: true,
     },
+    fleshPillar: {
+        id: "fleshPillar",
+        label: "Flesh Pillar",
+        radius: 25,
+        dmg: 30,
+        maxHp: 250,
+        speed: 0,
+        behavior: "passive",
+        aggroType: "none",
+        idleType: "none",
+        drops: ["sawblade"],
+        mass: 10,
+        sizeVary: true,
+    },
+    sponge: {
+        id: "sponge",
+        label: "Sponge",
+        radius: 25,
+        dmg: 10,
+        maxHp: 100,
+        speed: 0,
+        behavior: "passive",
+        aggroType: "none",
+        idleType: "none",
+        drops: ["rose"],
+        mass: 30,
+        sizeVary: true,
+    },
     garbage: {
         id: "garbage",
         label: "Garbage",
@@ -403,7 +473,7 @@ const MobTypes = {
         behavior: "passive",
         aggroType: "chase",
         idleType: "wanderSine",
-        drops: ["rice", "rock"],
+        drops: ["sand"],
         mass: 0.1,
         sizeVary: true,
     },
@@ -559,6 +629,22 @@ const MobTypes = {
         mass: 0.5,
         length: 10
     },
+    centipede_hel: {
+        id: "centipede_hel",
+        label: "Centipede",
+        radius: 20,
+        dmg: 30,
+        maxHp: 50,
+        speed: 400,
+        behavior: "hostile",
+        aggroType: "chase",
+        idleType: "wander",
+        aggroRange: 200,
+        drops: ["leaf"],
+        mass: 0.5,
+        length: 12,
+        sizeVary: true,
+    },
     centipedeDesert: {
         id: "centipedeDesert",
         label: "Centipede",
@@ -568,8 +654,8 @@ const MobTypes = {
         speed: 400,
         behavior: "neutral",
         aggroType: "chaseSine",
-        idleType: "wanderSine",
-        drops: ["rice", "rock"],
+        idleType: "wanderSineFast",
+        drops: ["sand", "faster"],
         mass: 0.5,
         length: 10
     },
@@ -631,7 +717,7 @@ const MobTypes = {
         aggroType: "chase",
         idleType: "wander",
         aggroRange: 670,
-        drops: ["landmine"],
+        drops: ["landmine", "georgeEgg"],
         mass: 6.7,
     },
     wasp: {
@@ -645,6 +731,20 @@ const MobTypes = {
         aggroType: "shootMissile",
         idleType: "wander",
         aggroRange: 200,
+        drops: ["rice", "rose"],
+        mass: 0.5,
+    },
+    wasp_hel: {
+        id: "wasp_hel",
+        label: "Wasp",
+        radius: 18,
+        dmg: 20,
+        maxHp: 100,
+        speed: 260,
+        behavior: "hostile",
+        aggroType: "shootMissileChasing",
+        idleType: "wander",
+        aggroRange: 500,
         drops: ["rice", "rose"],
         mass: 0.5,
     },
@@ -689,6 +789,25 @@ const MobTypes = {
         idleType: "wanderSineSlow",
         drops: ["stinger", "pollen"],
         mass: 0.35,
+    },
+    elephant: {
+        id: "elephant",
+        label: "Elephant",
+        radius: 35,
+        dmg: 38,
+        maxHp: 320,
+        speed: 130,
+        behavior: "neutral",
+        aggroType: "chaseRapidClose",
+        idleType: "wander",
+        aggroRange: 260,
+        mass: 4,
+        drops: ["rice", "rock"],
+        aiTurnSharpness: 10,
+        aiAccelSharpness: 8,
+        stompDamageMult: 1.4,
+        stompRange: 80,
+        stompCd: 3.0
     },
     beeEgg: {
         id: "beeEgg",
