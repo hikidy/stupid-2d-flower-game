@@ -1,0 +1,52 @@
+{
+    "Map/SizeTest": {
+        "height": 4300,
+        "width": 2
+    },
+    "activeFile": "untitled.tmj",
+    "expandedProjectPaths": [
+        "."
+    ],
+    "fileStates": {
+        "C:/Users/Edgar K/Documents/petell.tsx": {
+            "scaleInDock": 1
+        },
+        "Petwll.tsx": {
+            "dynamicWrapping": false,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "petell.tsx": {
+            "dynamicWrapping": true,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "untitled.tmj": {
+            "scale": 0.125,
+            "selectedLayer": 2,
+            "viewCenter": {
+                "x": 6652,
+                "y": 3392
+            }
+        }
+    },
+    "last.imagePath": "C:/Users/Edgar K/Downloads",
+    "map.height": 50,
+    "map.lastUsedFormat": "json",
+    "map.width": 50,
+    "openFiles": [
+        "untitled.tmj",
+        "Petwll.tsx"
+    ],
+    "project": "untitled.tiled-project",
+    "recentFiles": [
+        "Petwll.tsx",
+        "untitled.tmj",
+        "petell.tsx"
+    ],
+    "tileset.lastUsedFormat": "tsx",
+    "tileset.tileSize": {
+        "height": 32,
+        "width": 32
+    }
+}

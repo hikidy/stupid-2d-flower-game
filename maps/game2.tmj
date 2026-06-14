@@ -198,7 +198,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -278,7 +278,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -421,7 +421,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -513,7 +513,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -581,7 +581,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -669,7 +669,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -721,7 +721,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -805,7 +805,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -869,7 +869,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -937,7 +937,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -988,7 +988,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -1072,7 +1072,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;"
+                         "value":"bubble,1;crab,1;clam,1;jellyfish,1;leech,1;starfish,1;"
                         }, 
                         {
                          "name":"rarity",

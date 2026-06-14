@@ -198,7 +198,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -278,7 +278,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ladybug,1.5;bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -361,7 +361,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;ladybug,1.5;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -421,7 +421,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -513,7 +513,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -581,7 +581,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -669,7 +669,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -721,7 +721,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -805,7 +805,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -869,7 +869,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -937,7 +937,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -988,7 +988,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -1072,7 +1072,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"bee,1;ladybug,1.5;antBaby,1;rock,1;centipede,0.5;dandelion,1;ant,1;spider,1;hornet,2;bumblebee,1;antHole,1;aphid,1;"
+                         "value":"sandstorm,1;cactus,1;centipedeDesert,1;beetle,1;scorpion,1;"
                         }, 
                         {
                          "name":"rarity",
@@ -1095,12 +1095,6 @@
  "nextlayerid":4,
  "nextobjectid":15,
  "orientation":"orthogonal",
- "properties":[
-        {
-         "name":"biome",
-         "type":"string",
-         "value":"garden"
-        }],
  "renderorder":"right-down",
  "tiledversion":"1.11.2",
  "tileheight":256,
