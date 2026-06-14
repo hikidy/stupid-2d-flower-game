@@ -30,7 +30,7 @@ const LEVELING = {
 
     startSlots: 5,
     maxSlots: 10,
-    levelsPerSlot: 15,
+    levelsPerSlot: 5,
 
     maxHpBase: 250,
     maxHpGrowth: 1.02,
@@ -38,14 +38,14 @@ const LEVELING = {
     bodyDmgBase: 20,
     bodyDmgGrowth: 1.02,
 
-    expRequirementBase: 50,
-    expRequirementPower: 1.2,
+    expRequirementBase: 45,
+    expRequirementPower: 1.126,
 
     mobKillExpBase: 10,
-    mobKillExpRarityGrowth: 1.65,
+    mobKillExpRarityGrowth: 1.75,
 
     craftSuccessExpBase: 20,
-    craftSuccessExpRarityGrowth: 2.0
+    craftSuccessExpRarityGrowth: 2.2
 };
 
 function getExpRequiredForLevel(level) {
@@ -123,9 +123,24 @@ function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time
 
     // Default petal: still a multi petal, just one body.
     if (amount === 1) {
+        let x = cx;
+        let y = cy;
+
+        // Apply wing flapping when extended
+        if (type?.id === "wing" && ownerPlayer) {
+            const t = performance.now() / 250;
+            const isExtended = ownerPlayer.petalRadius > PETAL_EXTEND.baseRadius + 0.1;
+
+            if (isExtended) {
+                const flapOffset = Math.sin(t * 2.4) * 14;
+                x = cx - Math.sin(angle) * flapOffset;
+                y = cy + Math.cos(angle) * flapOffset;
+            }
+        }
+
         return [{
-            x: cx,
-            y: cy,
+            x,
+            y,
             index: 0,
             angle
         }];
@@ -151,7 +166,8 @@ function getMultiPetalPositions(cx, cy, angle, type, rarity, slotIndex = 0, time
 
         for (let i = 0; i < amount; i++) {
             const virtualIndex = info.start + i;
-            const p = getVirtualPetalPos(ownerPlayer, virtualIndex, total);
+            const isExtended = ownerPlayer.petalRadius > PETAL_EXTEND.baseRadius + 0.1;
+            const p = getVirtualPetalPos(ownerPlayer, virtualIndex, total, type, isExtended);
             const wobble = getMultiPetalWobble(slotIndex, i, time, r);
 
             out.push({
@@ -234,6 +250,7 @@ function syncPetalBodies(player, slotIndex, petal, type) {
 }
 
 function getPetalBodyPositions(player, slotIndex, petal, type) {
+    if (type?.noPetalBody) return [];
     const pos = player.petalSim?.[slotIndex];
     if (!pos || !petal || !type) return [];
 
@@ -289,7 +306,7 @@ const PETAL_EXTEND = {
 
 // global mob density (mobs per world pixel)
 const MOB_DENSITY = 1 / 125000;
-let MAX_MOBS = Math.max(100, Math.round(WORLD.w * WORLD.h * MOB_DENSITY));
+let MAX_MOBS = Math.max(100, Math.round(WORLD.w * WORLD.h * MOB_DENSITY * 0.5));
 const PICKUP_LIFETIME = 15; // seconds
 
 // range (in world pixels) within which mobs are considered "active" for
@@ -529,12 +546,27 @@ function getVirtualPetalAngle(player, virtualIndex, totalVirtual) {
     return player.angleBase + (virtualIndex * Math.PI * 2) / totalVirtual;
 }
 
-function getVirtualPetalPos(player, virtualIndex, totalVirtual) {
+function getVirtualPetalPos(player, virtualIndex, totalVirtual, type = null, extended = false) {
     const a = getVirtualPetalAngle(player, virtualIndex, totalVirtual);
 
+    let extraDistance = 0;
+    let flapOffset = 0;
+
+    if (type?.id === "wing") {
+        const t = performance.now() / 250;
+        const isExtended = extended || player?.petalRadius > PETAL_EXTEND.baseRadius + 0.1;
+
+        if (isExtended) {
+            extraDistance = Math.sin(t) * 16 + 72;
+            flapOffset = Math.sin(t * 2.4) * 14;
+        } else {
+            extraDistance = 60;
+        }
+    }
+
     return {
-        x: player.x + Math.cos(a) * player.petalRadius,
-        y: player.y + Math.sin(a) * player.petalRadius,
+        x: player.x + Math.cos(a) * (player.petalRadius + extraDistance) - Math.sin(a) * flapOffset,
+        y: player.y + Math.sin(a) * (player.petalRadius + extraDistance) + Math.cos(a) * flapOffset,
         angle: a
     };
 }
@@ -923,6 +955,64 @@ function findNearestEnemyMobForSummon(summon, range) {
 
     return best;
 }
+function getZoneAtPoint(x, y) {
+    for (const zone of mobSpawnZones) {
+        if (isPointInZone(x, y, zone)) {
+            return zone;
+        }
+    }
+
+    return null;
+}
+
+function spawnBloodSacrificeMobAt(x, y) {
+    const fakeZone = getZoneAtPoint(x, y);
+    if (!fakeZone) return false;
+
+    const type = chooseMobType(fakeZone);
+    const rarity = 7;
+
+    if (!type || !canSpawnMobTypeRarity(type, rarity)) return false;
+
+    const mob = new MobState(type, rarity);
+    mob.x = clamp(x, mob.radius || MOB.radius, WORLD.w - (mob.radius || MOB.radius));
+    mob.y = clamp(y, mob.radius || MOB.radius, WORLD.h - (mob.radius || MOB.radius));
+
+    mobs.push(mob);
+    return true;
+}
+
+function consumeBloodSacrificePetal(player) {
+    if (!player || !Array.isArray(player.petals)) return false;
+
+    for (let i = 0; i < player.petals.length; i++) {
+        const petal = player.petals[i];
+        if (!petal || petal.typeId !== "bloodSacrifice") continue;
+
+        // Replace with basic so your code does not explode from null slots,
+        // because apparently every array slot in this codebase is a sacred cow.
+        player.petals[i] = new Petal("basic", 0);
+        return true;
+    }
+
+    return false;
+}
+
+function tryBloodSacrificeOnDeath(player, deathX, deathY) {
+    if (!player || !Array.isArray(player.petals)) return false;
+
+    const hasBloodSacrifice = player.petals.some(p => p?.typeId === "bloodSacrifice");
+    if (!hasBloodSacrifice) return false;
+
+    const zone = getZoneAtPoint(deathX, deathY);
+    if (!zone || (Number(zone.rarity) || 0) < 3.5) return false;
+
+    const spawned = spawnBloodSacrificeMobAt(deathX, deathY);
+    if (!spawned) return false;
+
+    consumeBloodSacrificePetal(player);
+    return true;
+}
 
 function parseSpawnObjects(map) {
     const spawns = [];
@@ -996,6 +1086,20 @@ function loadMap(filename) {
     const raw = fs.readFileSync(fp, "utf8");
     const map = JSON.parse(raw);
 
+    // Parse map-level properties.
+    map.biome = "garden";
+    if (Array.isArray(map.properties)) {
+        for (const prop of map.properties) {
+            if (prop && prop.name === "biome") {
+                const value = String(prop.value || "").trim().toLowerCase();
+                if (value) {
+                    map.biome = value;
+                }
+                break;
+            }
+        }
+    }
+
     // Update world size FIRST.
     if (map.width && map.height && map.tilewidth && map.tileheight) {
         WORLD.w = map.width * map.tilewidth;
@@ -1045,6 +1149,20 @@ function isWallAt(x, y) {
     if (tx < 0 || ty < 0 || tx >= wallTiles.width || ty >= wallTiles.height) return false;
     const idx = ty * wallTiles.width + tx;
     return wallTiles.data[idx] > 0;
+}
+
+function tryPlaceMobInOpenSpace(mob, candidateFn, maxTries = 40) {
+    if (!mob || typeof candidateFn !== "function") return false;
+    const radius = mob.radius || MOB.radius;
+    let tries = 0;
+    while (tries < maxTries && isWallAt(mob.x, mob.y)) {
+        const candidate = candidateFn(tries);
+        if (!candidate || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) break;
+        mob.x = clamp(candidate.x, radius, WORLD.w - radius);
+        mob.y = clamp(candidate.y, radius, WORLD.h - radius);
+        tries++;
+    }
+    return !isWallAt(mob.x, mob.y);
 }
 
 function parseMobSpawnZones(map) {
@@ -1127,7 +1245,7 @@ function chooseMobType(zone) {
 
 // load the default map (hardcoded path for now)
 try {
-    currentMapData = loadMap("maps/game.tmj");
+    currentMapData = loadMap("maps/untitled.tmj");
     const zones = parseMobSpawnZones(currentMapData);
     mobSpawnZones.push(...zones);
     console.log("Loaded map with", zones.length, "spawn zones");
@@ -2085,6 +2203,7 @@ class PlayerState {
 
         const petalAngle = Math.atan2(pos.y - this.y, pos.x - this.x) || 0;
 
+
         const targets = getMultiPetalPositions(
             pos.x,
             pos.y,
@@ -2093,20 +2212,21 @@ class PlayerState {
             petal.rarity,
             slotIndex,
             this.time,
-            this
+            this,
         );
 
         for (let i = 0; i < bodies.length; i++) {
             const body = bodies[i];
             const target = targets[i] ?? targets[0] ?? pos;
 
-            body.index = i;
+            let flapOffset = 0;
+            if (petal.typeId === "wing" && this.input.extend) {
+                flapOffset = 10 + 5 * Math.sin(this.time * 10 + i);
+            }
 
-            // A normal single petal already has looseness from petalSim.
-            // Don't double-spring it or it will feel drunk.
             if (amount === 1) {
-                body.x = pos.x;
-                body.y = pos.y;
+                body.x = pos.x - Math.sin(petalAngle) * flapOffset;
+                body.y = pos.y + Math.cos(petalAngle) * flapOffset;
                 body.vx = this.petalSim[slotIndex].vx ?? 0;
                 body.vy = this.petalSim[slotIndex].vy ?? 0;
                 body.angle = petalAngle;
@@ -3145,6 +3265,27 @@ IdleTypes.wanderSine = (mob, dt) => {
     setMobDesiredMove(mob, angle, mob.idleSpeed);
 };
 
+IdleTypes.wanderSineFast = (mob, dt) => {
+    mob.wanderT -= dt;
+
+    if (mob.wanderT <= 0) {
+        mob.wanderT = randf(mob.wanderTMin, mob.wanderTMax);
+
+        const turnAmount = randf(-Math.PI * 0.65, Math.PI * 0.65);
+        mob.wanderDir = wrapAngle((mob.wanderDir ?? mob.angle ?? 0) + turnAmount);
+    }
+
+    mob._idleWaveT = (mob._idleWaveT ?? 0) + dt;
+
+    const freqHz = mob.idleWaveFreq ?? 0.75;
+    const ampRad = mob.idleWaveAmp ?? 0.22;
+
+    const wobble = Math.sin(mob._idleWaveT * freqHz * Math.PI * 2) * ampRad;
+    const angle = mob.wanderDir + wobble;
+
+    setMobDesiredMove(mob, angle, mob.idleSpeed * 3);
+};
+
 IdleTypes.wanderSineSlow = (mob, dt) => {
     mob.wanderT -= dt;
 
@@ -3224,6 +3365,7 @@ class MobState {
         this.shootCd = randf(0, 0.6);
 
         this.lightningCd = randf(0.25, 1.25);
+        this.smashCd = 0;
 
         this.mateCd = randf(3, 8);
         this.mateWarmupLeft = 0;
@@ -3494,6 +3636,21 @@ class MobState {
             if (this.lightningCd <= 0) {
                 fireMobLightning(this, target);
                 this.lightningCd = lightningCfg.cooldown * (0.95 + Math.random() * 0.1);
+            }
+        }
+
+        if (this.type === "elephant") {
+            this.smashCd = Math.max(0, this.smashCd - dt);
+            if (target && target.hp > 0) {
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const dist2 = dx * dx + dy * dy;
+                const stompRange = this.stompRange ?? this.radius * 1.4;
+                if (this.smashCd <= 0 && dist2 <= stompRange * stompRange) {
+                    const stompDmg = Math.round((this.dmg || 30) * (this.stompDamageMult ?? 1.35));
+                    applyEntityDamage(target, stompDmg, this);
+                    this.smashCd = this.stompCd ?? 3.0;
+                }
             }
         }
 
@@ -3938,9 +4095,14 @@ function spawnMobInZone(zone) {
     const m = new MobState(type, rarity);
     m.x = pt.x;
     m.y = pt.y;
+
+    if (!tryPlaceMobInOpenSpace(m, () => randomPointInPolygon(zone.polygon, zone.offsetX, zone.offsetY))) {
+        return false;
+    }
+
     mobs.push(m);
 
-    if (type.id === "centipede" || type.id === "milipede" || type.id === "centipedeDesert") {
+    if (type.id === "centipede" || type.id === "milipede" || type.id === "centipedeDesert" || type.id === "centipede_hel") {
         m.chainGroupId = m.id;
 
         const len = type.length || 5;
@@ -3957,7 +4119,7 @@ function spawnMobInZone(zone) {
             prev.chainNextId = seg.id;
 
             // keep segment inside zone if possible
-            if (!isPointInZone(seg.x, seg.y, zone)) {
+            for (let segTries = 0; segTries < 12 && (!isPointInZone(seg.x, seg.y, zone) || isWallAt(seg.x, seg.y)); segTries++) {
                 const fallback = randomPointInPolygon(zone.polygon, zone.offsetX, zone.offsetY);
                 seg.x = fallback.x;
                 seg.y = fallback.y;
@@ -3981,7 +4143,18 @@ function spawnMobFallback() {
 
             if (!canSpawnMobTypeRarity(type, rarity)) continue;
 
-            mobs.push(new MobState(type, rarity));
+            const mob = new MobState(type, rarity);
+            mob.x = randf(mob.radius || MOB.radius, WORLD.w - (mob.radius || MOB.radius));
+            mob.y = randf(mob.radius || MOB.radius, WORLD.h - (mob.radius || MOB.radius));
+
+            if (!tryPlaceMobInOpenSpace(mob, () => ({
+                x: randf(mob.radius || MOB.radius, WORLD.w - (mob.radius || MOB.radius)),
+                y: randf(mob.radius || MOB.radius, WORLD.h - (mob.radius || MOB.radius))
+            }), 24)) {
+                continue;
+            }
+
+            mobs.push(mob);
             return true;
         }
 
@@ -4033,9 +4206,16 @@ function spawnFlyFromGarbage(garbageX, garbageY, garbageFaction, garbageRarity) 
     fly.x = garbageX + Math.cos(angle) * distance;
     fly.y = garbageY + Math.sin(angle) * distance;
 
-    // Clamp to world bounds
-    fly.x = clamp(fly.x, fly.radius, WORLD.w - fly.radius);
-    fly.y = clamp(fly.y, fly.radius, WORLD.h - fly.radius);
+    if (!tryPlaceMobInOpenSpace(fly, () => {
+        const a = Math.random() * Math.PI * 2;
+        const d = 40 + Math.random() * 20;
+        return {
+            x: garbageX + Math.cos(a) * d,
+            y: garbageY + Math.sin(a) * d
+        };
+    })) {
+        return;
+    }
 
     // Inherit garbage's faction so flies from the same garbage won't fight each other
     fly.faction = garbageFaction;
@@ -4637,22 +4817,15 @@ function spawnMobNearMob(typeId, rarity, sourceMob, opts = {}) {
         WORLD.h - (mob.radius || MOB.radius)
     );
 
-    // Try not to spawn inside walls. Humanity's greatest invention: not putting ants in drywall.
-    for (let tries = 0; tries < 12 && isWallAt(mob.x, mob.y); tries++) {
+    if (!tryPlaceMobInOpenSpace(mob, () => {
         const a = randf(0, Math.PI * 2);
         const d = randf(sourceMob.radius || MOB.radius, (sourceMob.radius || MOB.radius) + spread * 2);
-
-        mob.x = clamp(
-            sourceMob.x + Math.cos(a) * d,
-            mob.radius || MOB.radius,
-            WORLD.w - (mob.radius || MOB.radius)
-        );
-
-        mob.y = clamp(
-            sourceMob.y + Math.sin(a) * d,
-            mob.radius || MOB.radius,
-            WORLD.h - (mob.radius || MOB.radius)
-        );
+        return {
+            x: sourceMob.x + Math.cos(a) * d,
+            y: sourceMob.y + Math.sin(a) * d
+        };
+    }, 24)) {
+        return null;
     }
 
     mobs.push(mob);
@@ -4710,7 +4883,7 @@ function spawnFriendlyMobFromPetal(player, petal, slotIndex, subIndex = 0, posOv
     const mob = new MobState(mobType, summonRarity);
 
     //reduced size scaling so that it isn't OP
-    //mob.radius = (mobType.radius ?? MOB.radius) * Math.pow(1.15, summonRarity);
+    mob.radius = (mobType.radius ?? MOB.radius) * Math.pow(1.15, summonRarity);
 
     const spawnR = Math.max(20, mob.radius || MOB.radius);
     const a = randf(0, Math.PI * 2);
@@ -4728,21 +4901,15 @@ function spawnFriendlyMobFromPetal(player, petal, slotIndex, subIndex = 0, posOv
         WORLD.h - (mob.radius || MOB.radius)
     );
 
-    for (let tries = 0; tries < 12 && isWallAt(mob.x, mob.y); tries++) {
+    if (!tryPlaceMobInOpenSpace(mob, () => {
         const aa = randf(0, Math.PI * 2);
         const dd = randf(10, spawnR + 45);
-
-        mob.x = clamp(
-            pos.x + Math.cos(aa) * dd,
-            mob.radius || MOB.radius,
-            WORLD.w - (mob.radius || MOB.radius)
-        );
-
-        mob.y = clamp(
-            pos.y + Math.sin(aa) * dd,
-            mob.radius || MOB.radius,
-            WORLD.h - (mob.radius || MOB.radius)
-        );
+        return {
+            x: pos.x + Math.cos(aa) * dd,
+            y: pos.y + Math.sin(aa) * dd
+        };
+    }, 24)) {
+        return null;
     }
 
     // Player-owned ally.
@@ -5696,7 +5863,12 @@ function tick() {
 
     for (const p of plArr) {
         if (p.hp <= 0) {
+            const deathX = p.x;
+            const deathY = p.y;
+
             killPlayerSummons(p);
+
+            tryBloodSacrificeOnDeath(p, deathX, deathY);
 
             p.hp = p.maxHp;
 
@@ -5758,7 +5930,8 @@ wss.on("connection", (ws) => {
             width: currentMapData.width,
             height: currentMapData.height,
             tilewidth: currentMapData.tilewidth,
-            tileheight: currentMapData.tileheight
+            tileheight: currentMapData.tileheight,
+            biome: currentMapData.biome || "garden"
         };
     }
     if (spawnObjects.length > 0) {
@@ -5956,8 +6129,21 @@ wss.on("connection", (ws) => {
             }
 
             const m = new MobState(type, rarity);
-            m.x = clamp(x, 0, WORLD.w);
-            m.y = clamp(y, 0, WORLD.h);
+            m.x = clamp(x, m.radius || MOB.radius, WORLD.w - (m.radius || MOB.radius));
+            m.y = clamp(y, m.radius || MOB.radius, WORLD.h - (m.radius || MOB.radius));
+
+            if (!tryPlaceMobInOpenSpace(m, () => {
+                const a = Math.random() * Math.PI * 2;
+                const d = Math.min(200, Math.max(m.radius || MOB.radius, 20 + Math.random() * 100));
+                return {
+                    x: x + Math.cos(a) * d,
+                    y: y + Math.sin(a) * d
+                };
+            }, 40)) {
+                console.warn(`Dev spawn failed: no open space near requested location ${x},${y}`);
+                return;
+            }
+
             mobs.push(m);
             console.log(`Dev spawned mob ${m.label || m.type} id=${m.id} at ${m.x},${m.y} (rarity=${m.rarity})`);
             return;
