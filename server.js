@@ -1245,7 +1245,7 @@ function chooseMobType(zone) {
 
 // load the default map (hardcoded path for now)
 try {
-    currentMapData = loadMap("maps/untitled.tmj");
+    currentMapData = loadMap("maps/ocean.tmj");
     const zones = parseMobSpawnZones(currentMapData);
     mobSpawnZones.push(...zones);
     console.log("Loaded map with", zones.length, "spawn zones");
