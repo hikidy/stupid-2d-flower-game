@@ -135,7 +135,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;"
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
                         }],
                  "rotation":0,
                  "type":"",
@@ -202,7 +202,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;"
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
                         }, 
                         {
                          "name":"rarity",
@@ -286,7 +286,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;"
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
                         }, 
                         {
                          "name":"rarity",
@@ -362,6 +362,10 @@
                          "y":1600
                         }, 
                         {
+                         "x":3408,
+                         "y":1592
+                        }, 
+                        {
                          "x":3248,
                          "y":-2032
                         }, 
@@ -382,7 +386,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;"
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
                         }, 
                         {
                          "name":"rarity",
@@ -466,7 +470,7 @@
                         {
                          "name":"mob_spawns",
                          "type":"string",
-                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;"
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
                         }, 
                         {
                          "name":"rarity",
@@ -479,6 +483,214 @@
                  "width":0,
                  "x":1056,
                  "y":7264
+                }, 
+                {
+                 "height":0,
+                 "id":7,
+                 "name":"",
+                 "polygon":[
+                        {
+                         "x":0,
+                         "y":0
+                        }, 
+                        {
+                         "x":2368,
+                         "y":816
+                        }, 
+                        {
+                         "x":816,
+                         "y":1440
+                        }, 
+                        {
+                         "x":2112,
+                         "y":3856
+                        }, 
+                        {
+                         "x":2688,
+                         "y":6400
+                        }, 
+                        {
+                         "x":4544,
+                         "y":6000
+                        }, 
+                        {
+                         "x":6640,
+                         "y":4976
+                        }, 
+                        {
+                         "x":7472,
+                         "y":3056
+                        }, 
+                        {
+                         "x":8048,
+                         "y":1760
+                        }, 
+                        {
+                         "x":7696,
+                         "y":-48
+                        }],
+                 "properties":[
+                        {
+                         "name":"max_mobs",
+                         "type":"string",
+                         "value":"50"
+                        }, 
+                        {
+                         "name":"mob_spawns",
+                         "type":"string",
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
+                        }, 
+                        {
+                         "name":"rarity",
+                         "type":"string",
+                         "value":"3"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":0,
+                 "x":8368,
+                 "y":176
+                }, 
+                {
+                 "height":0,
+                 "id":8,
+                 "name":"",
+                 "polygon":[
+                        {
+                         "x":0,
+                         "y":0
+                        }, 
+                        {
+                         "x":320,
+                         "y":1792
+                        }, 
+                        {
+                         "x":-1088,
+                         "y":5040
+                        }, 
+                        {
+                         "x":-3220,
+                         "y":6092
+                        }, 
+                        {
+                         "x":-5022,
+                         "y":6474
+                        }, 
+                        {
+                         "x":-6152,
+                         "y":9416
+                        }, 
+                        {
+                         "x":-240,
+                         "y":9376
+                        }, 
+                        {
+                         "x":1408,
+                         "y":6352
+                        }, 
+                        {
+                         "x":1424,
+                         "y":4128
+                        }, 
+                        {
+                         "x":2048,
+                         "y":3616
+                        }, 
+                        {
+                         "x":2672,
+                         "y":3184
+                        }, 
+                        {
+                         "x":2976,
+                         "y":2560
+                        }, 
+                        {
+                         "x":2976,
+                         "y":64
+                        }],
+                 "properties":[
+                        {
+                         "name":"max_mobs",
+                         "type":"string",
+                         "value":"75"
+                        }, 
+                        {
+                         "name":"mob_spawns",
+                         "type":"string",
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
+                        }, 
+                        {
+                         "name":"rarity",
+                         "type":"string",
+                         "value":"4.5"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":0,
+                 "x":16112,
+                 "y":112
+                }, 
+                {
+                 "height":0,
+                 "id":9,
+                 "name":"",
+                 "polygon":[
+                        {
+                         "x":0,
+                         "y":0
+                        }, 
+                        {
+                         "x":1376,
+                         "y":-912
+                        }, 
+                        {
+                         "x":1568,
+                         "y":-912
+                        }, 
+                        {
+                         "x":1456,
+                         "y":5312
+                        }, 
+                        {
+                         "x":-1584,
+                         "y":5280
+                        }, 
+                        {
+                         "x":-1536,
+                         "y":4880
+                        }, 
+                        {
+                         "x":-704,
+                         "y":3520
+                        }, 
+                        {
+                         "x":32,
+                         "y":2128
+                        }],
+                 "properties":[
+                        {
+                         "name":"max_mobs",
+                         "type":"string",
+                         "value":"25"
+                        }, 
+                        {
+                         "name":"mob_spawns",
+                         "type":"string",
+                         "value":"ant,1;antBaby,1;rock,1;beetle,1;antGuard,1;hornet,1;ladybug,1;spider,1;dandelion,1.5;"
+                        }, 
+                        {
+                         "name":"rarity",
+                         "type":"string",
+                         "value":"6"
+                        }],
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":0,
+                 "x":17552,
+                 "y":4256
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -487,7 +699,7 @@
          "y":0
         }],
  "nextlayerid":8,
- "nextobjectid":7,
+ "nextobjectid":10,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.11.2",
