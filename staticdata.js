@@ -33,7 +33,7 @@ const PetalTypes = {
     rice: { id: "rice", label: "Rice", dmg: 5, maxHp: 1, reload: 0.000001, radius: .55, },
     stinger: { id: "stinger", label: "Stinger", dmg: 100, maxHp: 5, reload: 5, radius: .55, multi: [1, 1, 1, 1, 1, 3, 5, 5, 6], clumps: true, splitMultiDamage: true, },
     sand: { id: "sand", label: "Sand", dmg: 5, maxHp: 1.25, reload: 1.5, radius: .5, multi: [4, 4, 4, 4, 4, 4, 4, 4, 4], clumps: true, splitMultiDamage: false, },
-    poo: { id: "poo", label: "Poo", dmg: 1, maxHp: 8, reload: 4.0, aggroRangeMult: 0.10 },
+    poo: { id: "poo", label: "Poo", dmg: 1, maxHp: 8, reload: 4.0, aggroRangeMult: 0.10, unstackable: true },
     lentil: { id: "lentil", label: "Lentil", dmg: 12, maxHp: 15, reload: 4.0, petalAttractBonus: 0.007, radius: .45 },
     wing: { id: "wing", label: "Wing", dmg: 20, maxHp: 10, reload: 2.5 },
     faster: {
@@ -87,6 +87,14 @@ const PetalTypes = {
         clumps: false,
         splitMultiDamage: true,
         radius: 0.75,
+    },
+    missile: {
+        id: "missile",
+        label: "Missile",
+        dmg: 35,
+        maxHp: 2,
+        reload: 1.5,
+        isDroppable: true,
     },
     yinYang: {
         id: "yinYang",
@@ -219,12 +227,24 @@ const PetalTypes = {
 
         dmg: 0,
         maxHp: 1,
-        reload: 999,
+        reload: 0,
 
         noPetalBody: true,
+        mutli: [0, 0, 0, 0, 0, 0, 0, 0],
 
         deathMobRarity: 7,
         minZoneRarity: 3.5
+    },
+    antennae: {
+        id: "antennae",
+        label: "Antennae",
+
+        dmg: 0,
+        maxHp: 0,
+        reload: 0,
+        noPetalBody: true,
+        mutli: [0, 0, 0, 0, 0, 0, 0, 0],
+        unstackable: true
     },
     god: {
         id: "god",
@@ -305,7 +325,7 @@ const MobTypes = {
         behavior: "hostile",
         aggroType: "chase",
         idleType: "wander",
-        drops: ["wing", "faster"],
+        drops: ["glass", "faster"],
         mass: 0.1,
     },
     stinkbug: {
@@ -320,6 +340,20 @@ const MobTypes = {
         idleType: "wander",
         drops: ["rice", "rose"],
         mass: 0.1,
+    },
+    demon: {
+        id: "demon",
+        label: "Demon",
+        radius: 35,
+        dmg: 50,
+        maxHp: 100,
+        speed: 400,
+        aggroRange: 500,
+        behavior: "hostile",
+        aggroType: "chase",
+        idleType: "wander",
+        drops: ["stinger"],
+        mass: 5.25,
     },
     antBaby: {
         id: "antBaby",
@@ -683,7 +717,7 @@ const MobTypes = {
         aggroType: "shootMissile",
         idleType: "wander",
         aggroRange: 200,
-        drops: ["rice", "rose", "landmine"],
+        drops: ["missile", "hornetEgg", "antennae"],
         mass: 0.5,
     },
     jellyfish: {
@@ -710,6 +744,20 @@ const MobTypes = {
         id: "george",
         label: "George",
         radius: 45,
+        dmg: 67,
+        maxHp: 670,
+        speed: 670,
+        behavior: "hostile",
+        aggroType: "chase",
+        idleType: "wander",
+        aggroRange: 670,
+        drops: ["landmine", "georgeEgg"],
+        mass: 6.7,
+    },
+    antTrooper: {
+        id: "antTrooper",
+        label: "Ant Trooper",
+        radius: 10,
         dmg: 67,
         maxHp: 670,
         speed: 670,
@@ -846,7 +894,7 @@ const MobTypes = {
         aggroType: "shootMissilePredictive",
         idleType: "wanderSine",
         aggroRange: 250,
-        drops: ["pollen"],
+        drops: ["pollen", "missile"],
         mass: 0.5,
     },
     scorpion: {
@@ -1002,7 +1050,7 @@ const MobObjectTypes = {
         label: "Stinger",
         baseDmg: 5,
         baseHp: 12,
-        radius: 6,
+        radius: 10,
         speed: 400,
         life: 100,
         homing: false,
