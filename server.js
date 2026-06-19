@@ -3984,7 +3984,7 @@ class MobState {
 }
 
 class PickupState {
-    constructor(typeId, rarity, x, y) {
+    constructor(typeId, rarity, x, y, ownerPlayerId = null) {
         this.id = nextPickupId++;
         this.typeId = typeId;
         this.rarity = clampPetalRarity(rarity);
@@ -3992,6 +3992,7 @@ class PickupState {
         this.y = y + randf(-10, 10);
         this.life = PICKUP_LIFETIME;
         this.radius = 10;
+        this.ownerPlayerId = ownerPlayerId;
     }
 
     update(dt) {
@@ -4476,6 +4477,11 @@ function handlePickups(dt) {
 
         for (let i = pickups.length - 1; i >= 0; i--) {
             const pk = pickups[i];
+
+            if (pk.ownerPlayerId != null && pk.ownerPlayerId !== player.id) {
+                continue;
+            }
+
             const r = PLAYER.radius + pk.radius;
 
             if (dist2(player.x, player.y, pk.x, pk.y) <= r * r) {
@@ -4497,7 +4503,7 @@ function handlePickups(dt) {
 }
 
 // -------------------- Networking --------------------
-function makeSnapshot() {
+function makeSnapshot(viewer) {
     // copy arrays quickly
     const ps = playersArr.map(p => ({
         id: p.id,
@@ -4513,139 +4519,26 @@ function makeSnapshot() {
         level: p.level,
         exp: p.exp,
         expToNext: p.expToNext,
-        slotCount: p.slotCount,
-        bodyDmg: p.bodyDmg,
-        angleBase: p.angleBase,
-        petalRadius: p.petalRadius,
-        hasAntennae: playerHasActivePetalType(p, "antennae"),
-        antennaeRarity: getActivePetalTypeRarity(p, "antennae"),
-        petals: p.petals.map((petal, i) => {
-            const type = PetalTypes[petal.typeId];
-            const disabledByStack = p.isSlotStackDisabledFast?.(i) ?? isPetalSlotStackDisabled(p, i);
-            petal.disabledByStack = disabledByStack;
-            const noPetalBody = !!type?.noPetalBody;
-
-            const pos = p.petalSim?.[i] ?? { x: p.x, y: p.y };
-            const angle = Math.atan2(pos.y - p.y, pos.x - p.x);
-
-            syncPetalMultiState(petal);
-
-            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
-            const totalMaxHp = petal.maxHp * multiAmount;
-            const visibleMultiBodies = (disabledByStack || noPetalBody) ? [] : petal.multiBodies;
-
-            return {
-                disabledByStack,
-                noPetalBody,
-                multiBodies: Array.isArray(visibleMultiBodies)
-                    ? visibleMultiBodies.map(body => ({
-                        x: body.x,
-                        y: body.y,
-                        index: body.index ?? 0,
-                        angle: body.angle ?? 0
-                    }))
-                    : [],
-
-                typeId: petal.typeId,
-                rarity: petal.rarity,
-                hp: petal.hp,
-                maxHp: totalMaxHp,
-                reloadLeft: petal.reloadLeft,
-                reloadTime: petal.reloadTime,
-                label: type?.label ?? petal.typeId,
-                angle,
-                spinAngle: petal.typeId === "missile"
-                    ? angle
-                    : getPetalSpinAngle(i, 0, p.time, type, petal.rarity),
-
-                multi: multiAmount,
-                clumps: !!type?.clumps,
-                splitMultiDamage: !!type?.splitMultiDamage,
-
-                multiPetalRadius: getPetalRadius(type, petal.rarity),
-
-                multiPetalPos: (disabledByStack || noPetalBody) ? [] : (
-                    Array.isArray(petal.multiBodies) && petal.multiBodies.length > 0
-                        ? petal.multiBodies
-                        : getMultiPetalPositions(
-                            pos.x,
-                            pos.y,
-                            angle,
-                            type,
-                            petal.rarity,
-                            i,
-                            p.time,
-                            p
-                        )
-                ).map(mp => {
-                    const subIndex = mp.index ?? 0;
-
-                    return {
-                        ...mp,
-                        angle: mp.angle ?? angle,
-
-                        spinAngle: petal.typeId === "missile"
-                            ? (mp.angle ?? angle)
-                            : getPetalSpinAngle(i, subIndex, p.time, type, petal.rarity),
-                        hp: petal.multiHp[subIndex] ?? petal.maxHp,
-                        maxHp: petal.maxHp,
-                        label: type?.label ?? petal.typeId,
-                        alive: (petal.multiHp[subIndex] ?? petal.maxHp) > 0,
-                        reloadLeft: petal.multiReloadLeft?.[subIndex] ?? 0,
-                        reloadTime: petal.reloadTime,
-                        dropped: !!petal.dropped,
-                        dropX: petal.dropX,
-                        dropY: petal.dropY,
-                    };
-                }),
-
-                light: type?.light ?? null
-            };
-        }),
-        secondaryPetals: p.secondaryPetals.map(petal => {
-            const type = PetalTypes[petal.typeId];
-
-            syncPetalMultiState(petal);
-
-            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
-            const totalMaxHp = petal.maxHp * multiAmount;
-
-            return {
-                typeId: petal.typeId,
-                label: type?.label ?? petal.typeId,
-                rarity: petal.rarity,
-                hp: petal.hp,
-                maxHp: totalMaxHp,
-                reloadLeft: petal.reloadLeft,
-                reloadTime: petal.reloadTime
-            };
-        }),
-        petalPos: p.petalSim.map(s => ({ x: s.x, y: s.y })),
-        inv: p.inv.map(item => {
-            const type = PetalTypes[item.typeId];
-
-            return {
-                ...item,
-                label: type?.label ?? item.typeId
-            };
-        })
+        // ...
     }));
 
-    const ms = mobsArr; // objects already have toJSON
+    const ms = mobsArr;
 
-    const ks = pickups.map(k => {
-        const type = PetalTypes[k.typeId];
+    const ks = pickups
+        .filter(k => k.ownerPlayerId == null || k.ownerPlayerId === viewer.id)
+        .map(k => {
+            const type = PetalTypes[k.typeId];
 
-        return {
-            id: k.id,
-            typeId: k.typeId,
-            label: type?.label ?? k.typeId,
-            rarity: k.rarity,
-            x: k.x,
-            y: k.y,
-            life: k.life
-        };
-    });
+            return {
+                id: k.id,
+                typeId: k.typeId,
+                label: type?.label ?? k.typeId,
+                rarity: k.rarity,
+                x: k.x,
+                y: k.y,
+                life: k.life
+            };
+        });
 
     const os = mobObjects.map(o => ({
         id: o.id,
@@ -5479,6 +5372,23 @@ function handlePetalEntityContact(player, slotIndex, petal, target, targetRadius
     return false;
 }
 
+function spawnPrivateDropForPlayers(mob) {
+    for (const player of playersArr) {
+        if (!player || player.hp <= 0) continue;
+
+        pickups.push({
+            id: nextPickupId++,
+            ownerPlayerId: player.id,
+            x: mob.x,
+            y: mob.y,
+            typeId: mob.dropTypeId,
+            rarity: mob.dropRarity,
+            age: 0,
+            life: PICKUP_LIFETIME
+        });
+    }
+}
+
 function tick() {
     ensureMobs();
 
@@ -5907,17 +5817,22 @@ function tick() {
 
         const drops = Array.isArray(mob.drops) ? mob.drops : [];
 
-        for (const dropType of drops) {
-            if (!PetalTypes[dropType]) continue;
+        for (const player of playersArr) {
+            if (!player || player.hp <= 0) continue;
 
-            pickups.push(
-                new PickupState(
-                    dropType,
-                    rollDropRarityFromMob(mob.rarity),
-                    mob.x,
-                    mob.y
-                )
-            );
+            for (const dropType of drops) {
+                if (!PetalTypes[dropType]) continue;
+
+                pickups.push(
+                    new PickupState(
+                        dropType,
+                        rollDropRarityFromMob(mob.rarity),
+                        mob.x,
+                        mob.y,
+                        player.id
+                    )
+                );
+            }
         }
 
         if (
@@ -5999,7 +5914,12 @@ function tick() {
     tickCount++;
 
     if (tickCount % SNAPSHOT_EVERY_TICKS === 0) {
-        broadcast(makeSnapshot());
+        for (const [ws, playerId] of sockets.entries()) {
+            const player = players.get(playerId);
+            if (!player || ws.readyState !== WebSocket.OPEN) continue;
+
+            ws.send(JSON.stringify(makeSnapshot(player)));
+        }
     }
 }
 
