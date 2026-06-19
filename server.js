@@ -4506,20 +4506,113 @@ function handlePickups(dt) {
 function makeSnapshot(viewer) {
     // copy arrays quickly
     const ps = playersArr.map(p => ({
-        id: p.id,
-        x: p.x,
-        y: p.y,
-        radius: p.radius,
-        lookAngle: Math.atan2(
-            Number.isFinite(p.input?.mouseY) ? p.input.mouseY - p.y : 0,
-            Number.isFinite(p.input?.mouseX) ? p.input.mouseX - p.x : 1
-        ),
-        hp: p.hp,
-        maxHp: p.maxHp,
-        level: p.level,
-        exp: p.exp,
-        expToNext: p.expToNext,
-        // ...
+        id: p.id, x: p.x, y: p.y, radius: p.radius, lookAngle: Math.atan2(Number.isFinite(p.input?.mouseY) ? p.input.mouseY - p.y : 0, Number.isFinite(p.input?.mouseX) ? p.input.mouseX - p.x : 1), hp: p.hp, maxHp: p.maxHp, level: p.level, exp: p.exp, expToNext: p.expToNext, slotCount: p.slotCount, bodyDmg: p.bodyDmg, angleBase: p.angleBase, petalRadius: p.petalRadius, hasAntennae: playerHasActivePetalType(p, "antennae"), antennaeRarity: getActivePetalTypeRarity(p, "antennae"), petals: p.petals.map((petal, i) => {
+            const type = PetalTypes[petal.typeId]; const disabledByStack = p.isSlotStackDisabledFast?.(i) ?? isPetalSlotStackDisabled(p, i); petal.disabledByStack = disabledByStack; const noPetalBody = !!type?.noPetalBody;
+
+            const pos = p.petalSim?.[i] ?? { x: p.x, y: p.y };
+            const angle = Math.atan2(pos.y - p.y, pos.x - p.x);
+
+            syncPetalMultiState(petal);
+
+            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
+            const totalMaxHp = petal.maxHp * multiAmount;
+            const visibleMultiBodies = (disabledByStack || noPetalBody) ? [] : petal.multiBodies;
+
+            return {
+                disabledByStack,
+                noPetalBody,
+                multiBodies: Array.isArray(visibleMultiBodies)
+                    ? visibleMultiBodies.map(body => ({
+                        x: body.x,
+                        y: body.y,
+                        index: body.index ?? 0,
+                        angle: body.angle ?? 0
+                    }))
+                    : [],
+
+                typeId: petal.typeId,
+                rarity: petal.rarity,
+                hp: petal.hp,
+                maxHp: totalMaxHp,
+                reloadLeft: petal.reloadLeft,
+                reloadTime: petal.reloadTime,
+                label: type?.label ?? petal.typeId,
+                angle,
+                spinAngle: petal.typeId === "missile"
+                    ? angle
+                    : getPetalSpinAngle(i, 0, p.time, type, petal.rarity),
+
+                multi: multiAmount,
+                clumps: !!type?.clumps,
+                splitMultiDamage: !!type?.splitMultiDamage,
+
+                multiPetalRadius: getPetalRadius(type, petal.rarity),
+
+                multiPetalPos: (disabledByStack || noPetalBody) ? [] : (
+                    Array.isArray(petal.multiBodies) && petal.multiBodies.length > 0
+                        ? petal.multiBodies
+                        : getMultiPetalPositions(
+                            pos.x,
+                            pos.y,
+                            angle,
+                            type,
+                            petal.rarity,
+                            i,
+                            p.time,
+                            p
+                        )
+                ).map(mp => {
+                    const subIndex = mp.index ?? 0;
+
+                    return {
+                        ...mp,
+                        angle: mp.angle ?? angle,
+
+                        spinAngle: petal.typeId === "missile"
+                            ? (mp.angle ?? angle)
+                            : getPetalSpinAngle(i, subIndex, p.time, type, petal.rarity),
+                        hp: petal.multiHp[subIndex] ?? petal.maxHp,
+                        maxHp: petal.maxHp,
+                        label: type?.label ?? petal.typeId,
+                        alive: (petal.multiHp[subIndex] ?? petal.maxHp) > 0,
+                        reloadLeft: petal.multiReloadLeft?.[subIndex] ?? 0,
+                        reloadTime: petal.reloadTime,
+                        dropped: !!petal.dropped,
+                        dropX: petal.dropX,
+                        dropY: petal.dropY,
+                    };
+                }),
+
+                light: type?.light ?? null
+            };
+        }),
+        secondaryPetals: p.secondaryPetals.map(petal => {
+            const type = PetalTypes[petal.typeId];
+
+            syncPetalMultiState(petal);
+
+            const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
+            const totalMaxHp = petal.maxHp * multiAmount;
+
+            return {
+                typeId: petal.typeId,
+                label: type?.label ?? petal.typeId,
+                rarity: petal.rarity,
+                hp: petal.hp,
+                maxHp: totalMaxHp,
+                reloadLeft: petal.reloadLeft,
+                reloadTime: petal.reloadTime
+            };
+        }),
+        petalPos: p.petalSim.map(s => ({ x: s.x, y: s.y })),
+        inv: p.inv.map(item => {
+            const type = PetalTypes[item.typeId];
+
+            return {
+                ...item,
+                label: type?.label ?? item.typeId
+            };
+        })
     }));
 
     const ms = mobsArr;
