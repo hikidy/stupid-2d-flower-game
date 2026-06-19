@@ -355,11 +355,17 @@ const PETAL_DROP = {
     // Extra push away from the player.
     outwardImpulse: 85,
 
+    // Forward speed for missile petals after they are dropped.
+    missileSpeed: 400,
+
+    // How long missile petals fly before despawning and reloading.
+    missileLifetime: 5,
+
     // Tiny sideways wobble so multi petals don't stack perfectly.
     sideImpulse: 28,
 
     // Softer than normal orbit following.
-    stiffness: 85,
+    stiffness: 190,
     damping: 18
 };
 
@@ -506,10 +512,10 @@ function getPetalMultiDamage(petal, type) {
 
 function getPetalSlotAmount(player, slotIndex) {
     const petal = player?.petals?.[slotIndex];
-    if (!petal) return 1;
+    if (!petal) return 0;
 
     const type = PetalTypes[petal.typeId];
-    if (!type) return 1;
+    if (!type || type.noPetalBody) return 0;
 
     const amount = resolvePetalMultiCount(type, petal.rarity);
 
@@ -526,7 +532,7 @@ function getPetalOrbitLayout(player) {
         const petal = player.petals[slotIndex];
         const disabled = petal && isPetalSlotStackDisabled(player, slotIndex);
 
-        const amount = disabled ? 1 : getPetalSlotAmount(player, slotIndex);
+        const amount = disabled ? 0 : getPetalSlotAmount(player, slotIndex);
 
         layout[slotIndex] = {
             start: total,
@@ -584,6 +590,39 @@ function getPetalTypeCount(player, typeId) {
     }
 
     return count;
+}
+
+function playerHasActivePetalType(player, typeId) {
+    if (!player || !Array.isArray(player.petals)) return false;
+
+    for (let i = 0; i < player.petals.length; i++) {
+        const petal = player.petals[i];
+        if (!petal) continue;
+        if (petal.typeId !== typeId) continue;
+        if (player.isSlotStackDisabledFast?.(i) ?? isPetalSlotStackDisabled(player, i)) continue;
+
+        return true;
+    }
+
+    return false;
+}
+
+function getActivePetalTypeRarity(player, typeId) {
+    if (!player || !Array.isArray(player.petals)) return null;
+
+    let bestRarity = null;
+
+    for (let i = 0; i < player.petals.length; i++) {
+        const petal = player.petals[i];
+        if (!petal) continue;
+        if (petal.typeId !== typeId) continue;
+        if (player.isSlotStackDisabledFast?.(i) ?? isPetalSlotStackDisabled(player, i)) continue;
+
+        const rarity = clampPetalRarity(petal.rarity);
+        bestRarity = bestRarity == null ? rarity : Math.max(bestRarity, rarity);
+    }
+
+    return bestRarity;
 }
 
 function isPetalSlotStackDisabled(player, slotIndex) {
@@ -1243,7 +1282,6 @@ function chooseMobType(zone) {
     return pick(MobTypeList);
 }
 
-// load the default map (hardcoded path for now)
 try {
     currentMapData = loadMap("maps/mannaMap.tmj");
     const zones = parseMobSpawnZones(currentMapData);
@@ -1563,7 +1601,7 @@ function getPlayerPetalSpeedMultiplier(player) {
     let bonus = 0;
 
     for (const petal of player.petals) {
-        if (!petal || !petal.isAlive()) continue;
+        if (!petal) continue;
 
         const type = PetalTypes[petal.typeId];
         if (!type) continue;
@@ -2084,6 +2122,56 @@ class PlayerState {
             if (petal?.dropped) {
                 const type = PetalTypes[petal.typeId];
 
+                // Missile keeps flying forward instead of settling.
+                if (petal.typeId === "missile") {
+                    syncPetalMultiState(petal);
+
+                    if (!Array.isArray(petal.multiBodies) || petal.multiBodies.length === 0) {
+                        petal.multiBodies = [{
+                            x: petal.dropX ?? this.x,
+                            y: petal.dropY ?? this.y,
+                            vx: 0,
+                            vy: 0,
+                            index: 0,
+                            angle: 0
+                        }];
+                    }
+
+                    const body = petal.multiBodies[0];
+                    const s = this.petalSim[i];
+
+                    const currentSpeed = Math.hypot(body.vx || 0, body.vy || 0);
+                    const angle = currentSpeed > 0.001
+                        ? Math.atan2(body.vy, body.vx)
+                        : (body.angle ?? petal.angle ?? 0);
+
+                    body.angle = angle;
+
+                    const speed = PETAL_DROP.missileSpeed;
+
+                    body.vx = Math.cos(angle) * speed;
+                    body.vy = Math.sin(angle) * speed;
+
+                    body.x = clamp(body.x + body.vx * dt, PETAL.radius, WORLD.w - PETAL.radius);
+                    body.y = clamp(body.y + body.vy * dt, PETAL.radius, WORLD.h - PETAL.radius);
+
+                    s.x = body.x;
+                    s.y = body.y;
+                    s.vx = body.vx;
+                    s.vy = body.vy;
+
+                    petal.dropX = s.x;
+                    petal.dropY = s.y;
+                    petal.dropAge = (petal.dropAge ?? 0) + dt;
+
+                    if (petal.dropAge >= PETAL_DROP.missileLifetime) {
+                        petal.forceReload();
+                    }
+
+                    continue;
+                }
+
+                // existing landmine / normal dropped logic below
                 syncPetalMultiState(petal);
 
                 if (!Array.isArray(petal.multiBodies)) {
@@ -2118,21 +2206,11 @@ class PlayerState {
                 for (let j = 0; j < bodies.length; j++) {
                     const body = bodies[j];
                     const target = petal.dropTargets?.[j];
-
                     if (!target) continue;
 
-                    // Always spring toward the resting point.
-                    // Never hard-snap, because snapping is the enemy of looking alive.
-                    springBodyTo(
-                        body,
-                        target,
-                        dt,
-                        PETAL_DROP.stiffness,
-                        PETAL_DROP.damping
-                    );
+                    springBodyTo(body, target, dt, PETAL_DROP.stiffness, PETAL_DROP.damping);
 
                     const radius = getPetalRadius(type, petal.rarity);
-
                     body.x = clamp(body.x, radius, WORLD.w - radius);
                     body.y = clamp(body.y, radius, WORLD.h - radius);
 
@@ -2147,7 +2225,6 @@ class PlayerState {
                 }
 
                 const first = bodies[0];
-
                 const s = this.petalSim[i];
                 s.x = first?.x ?? petal.dropX;
                 s.y = first?.y ?? petal.dropY;
@@ -2532,14 +2609,43 @@ class PlayerState {
 
             syncPetalMultiState(petal);
 
-            // Get exact current positions BEFORE dropped mode.
-            // This works for clumped and spread petals.
             const bodies = getPetalBodyPositions(this, i, petal, type);
-
             if (!Array.isArray(bodies) || bodies.length <= 0) continue;
 
-            // Snapshot the bodies directly.
-            // Do not rely on later orbit layout recalculation.
+            if (petal.typeId === "missile") {
+                const body = bodies[0];
+                const angle = body.angle ?? petal.angle ?? 0;
+                const speed = PETAL_DROP.missileSpeed;
+                const launchVx = Math.cos(angle) * speed;
+                const launchVy = Math.sin(angle) * speed;
+
+                petal.multiBodies = bodies.map((b, j) => ({
+                    x: b.x,
+                    y: b.y,
+                    vx: j === 0 ? launchVx : (Number.isFinite(b.vx) ? b.vx : 0),
+                    vy: j === 0 ? launchVy : (Number.isFinite(b.vy) ? b.vy : 0),
+                    index: j,
+                    angle: b.angle ?? angle
+                }));
+
+                petal.dropTargets = [];
+                petal.dropped = true;
+                petal.dropAge = 0;
+                petal.dropSettleTime = 0;
+                petal.angle = angle;
+
+                petal.dropX = body.x;
+                petal.dropY = body.y;
+
+                const s = this.petalSim[i];
+                s.x = body.x;
+                s.y = body.y;
+                s.vx = launchVx;
+                s.vy = launchVy;
+
+                continue;
+            }
+
             petal.multiBodies = bodies.map((body, j) => ({
                 x: body.x,
                 y: body.y,
@@ -2557,7 +2663,6 @@ class PlayerState {
                 const nx = dx / d;
                 const ny = dy / d;
 
-                // Perpendicular direction, used for tiny spread.
                 const px = -ny;
                 const py = nx;
 
@@ -3837,8 +3942,6 @@ class MobState {
                 }
             }
 
-            // Keep only existing living spores in the list.
-            // This does NOT respawn them. Civilization survives another day.
             this.dandelionMissiles = this.dandelionMissiles.filter(id => {
                 const missile = mobObjects.find(m => m.id === id);
                 return missile && missile.hp > 0;
@@ -4414,8 +4517,14 @@ function makeSnapshot() {
         bodyDmg: p.bodyDmg,
         angleBase: p.angleBase,
         petalRadius: p.petalRadius,
+        hasAntennae: playerHasActivePetalType(p, "antennae"),
+        antennaeRarity: getActivePetalTypeRarity(p, "antennae"),
         petals: p.petals.map((petal, i) => {
             const type = PetalTypes[petal.typeId];
+            const disabledByStack = p.isSlotStackDisabledFast?.(i) ?? isPetalSlotStackDisabled(p, i);
+            petal.disabledByStack = disabledByStack;
+            const noPetalBody = !!type?.noPetalBody;
+
             const pos = p.petalSim?.[i] ?? { x: p.x, y: p.y };
             const angle = Math.atan2(pos.y - p.y, pos.x - p.x);
 
@@ -4423,10 +4532,13 @@ function makeSnapshot() {
 
             const multiAmount = Math.max(1, resolvePetalMultiCount(type, petal.rarity));
             const totalMaxHp = petal.maxHp * multiAmount;
+            const visibleMultiBodies = (disabledByStack || noPetalBody) ? [] : petal.multiBodies;
 
             return {
-                multiBodies: Array.isArray(petal.multiBodies)
-                    ? petal.multiBodies.map(body => ({
+                disabledByStack,
+                noPetalBody,
+                multiBodies: Array.isArray(visibleMultiBodies)
+                    ? visibleMultiBodies.map(body => ({
                         x: body.x,
                         y: body.y,
                         index: body.index ?? 0,
@@ -4442,7 +4554,9 @@ function makeSnapshot() {
                 reloadTime: petal.reloadTime,
                 label: type?.label ?? petal.typeId,
                 angle,
-                spinAngle: getPetalSpinAngle(i, 0, p.time, type, petal.rarity),
+                spinAngle: petal.typeId === "missile"
+                    ? angle
+                    : getPetalSpinAngle(i, 0, p.time, type, petal.rarity),
 
                 multi: multiAmount,
                 clumps: !!type?.clumps,
@@ -4450,7 +4564,7 @@ function makeSnapshot() {
 
                 multiPetalRadius: getPetalRadius(type, petal.rarity),
 
-                multiPetalPos: (
+                multiPetalPos: (disabledByStack || noPetalBody) ? [] : (
                     Array.isArray(petal.multiBodies) && petal.multiBodies.length > 0
                         ? petal.multiBodies
                         : getMultiPetalPositions(
@@ -4470,7 +4584,9 @@ function makeSnapshot() {
                         ...mp,
                         angle: mp.angle ?? angle,
 
-                        spinAngle: getPetalSpinAngle(i, subIndex, p.time, type, petal.rarity),
+                        spinAngle: petal.typeId === "missile"
+                            ? (mp.angle ?? angle)
+                            : getPetalSpinAngle(i, subIndex, p.time, type, petal.rarity),
                         hp: petal.multiHp[subIndex] ?? petal.maxHp,
                         maxHp: petal.maxHp,
                         label: type?.label ?? petal.typeId,
