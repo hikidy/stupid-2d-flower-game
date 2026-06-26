@@ -21,7 +21,7 @@ const SNAPSHOT_EVERY_TICKS = Math.max(1, Math.round(TICK_RATE / SNAPSHOT_RATE));
 const PLAYER = {
     radius: 15,
     maxHp: 250,
-    speed: 220,
+    speed: 2200,
     bodyDmg: 20
 };
 
